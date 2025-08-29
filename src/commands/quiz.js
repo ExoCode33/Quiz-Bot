@@ -44,7 +44,7 @@ module.exports = {
                 .addFields(
                     {
                         name: '📋 How it Works',
-                        value: `🎯 Answer **10 anime questions**\n⏱️ **${process.env.QUESTION_TIME_LIMIT || 20} seconds** per question\n🏆 **Score determines your buff tier**\n🌅 **Resets daily** at ${process.env.DAILY_RESET_HOUR_EDT || 0}:${(process.env.DAILY_RESET_MINUTE_EDT || 30).toString().padStart(2, '0')} EDT`,
+                        value: `🎯 Answer **10 anime questions**\n⏱️ **${process.env.QUESTION_TIME_LIMIT || 20} seconds** per question\n🏆 **Score determines your buff tier**\n🌅 **Resets daily** <t:${this.getNextResetTimestamp()}:t>`,
                         inline: false
                     },
                     {
@@ -126,6 +126,48 @@ module.exports = {
                 await interaction.reply(errorMessage);
             }
         }
+    },
+
+    getNextResetTimestamp() {
+        const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
+        const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
+        
+        const now = new Date();
+        const edtOffset = this.isEDT(now) ? -4 : -5;
+        const edtTime = new Date(now.getTime() + (edtOffset * 60 * 60 * 1000));
+        
+        let nextReset = new Date(edtTime);
+        nextReset.setHours(resetHour, resetMinute, 0, 0);
+        
+        const currentTimeInMinutes = (edtTime.getHours() * 60) + edtTime.getMinutes();
+        const resetTimeInMinutes = (resetHour * 60) + resetMinute;
+        
+        // If it's already past reset time today, set for tomorrow
+        if (currentTimeInMinutes >= resetTimeInMinutes) {
+            nextReset.setDate(nextReset.getDate() + 1);
+        }
+        
+        // Convert back to UTC
+        const utcReset = new Date(nextReset.getTime() - (edtOffset * 60 * 60 * 1000));
+        
+        return Math.floor(utcReset.getTime() / 1000);
+    },
+
+    isEDT(date) {
+        const year = date.getFullYear();
+        
+        // Second Sunday in March at 2:00 AM
+        const marchSecondSunday = new Date(year, 2, 1);
+        marchSecondSunday.setDate(1 + (14 - marchSecondSunday.getDay()) % 7);
+        marchSecondSunday.setDate(marchSecondSunday.getDate() + 7);
+        marchSecondSunday.setHours(2, 0, 0, 0);
+        
+        // First Sunday in November at 2:00 AM
+        const novemberFirstSunday = new Date(year, 10, 1);
+        novemberFirstSunday.setDate(1 + (7 - novemberFirstSunday.getDay()) % 7);
+        novemberFirstSunday.setHours(2, 0, 0, 0);
+        
+        return date >= marchSecondSunday && date < novemberFirstSunday;
     },
 
     async showAlreadyCompleted(interaction, completion) {
