@@ -1,61 +1,61 @@
-// Tier colors for embeds (One Piece theme)
+// Tier colors for embeds (Nico Robin theme - purples and scholarly colors)
 const TIER_COLORS = {
     0: '#808080',   // No tier - Gray
-    1: '#FFFFFF',   // Common - White
-    2: '#4CAF50',   // Uncommon - Green
-    3: '#2196F3',   // Rare - Blue
-    4: '#9C27B0',   // Epic - Purple
-    5: '#FFC107',   // Legendary - Gold
-    6: '#FFC107',   // Legendary - Gold
-    7: '#FF9800',   // Mythical - Orange
-    8: '#FF9800',   // Mythical - Orange
-    9: '#F44336',   // Divine - Red
-    10: '#F44336'   // Divine - Red
+    1: '#E8E8E8',   // Novice Scholar - Light Gray
+    2: '#98D8C8',   // Apprentice Historian - Soft Teal
+    3: '#6FA8DC',   // Skilled Archaeologist - Blue
+    4: '#8B7EC8',   // Expert Researcher - Light Purple
+    5: '#B19CD9',   // Master of Poneglyphs - Medium Purple
+    6: '#9A7BC2',   // Master of Poneglyphs - Medium Purple
+    7: '#7B6AAE',   // Devil Child Wisdom - Deep Purple
+    8: '#6B4E8D',   // Devil Child Wisdom - Deep Purple
+    9: '#5A3C7A',   // Ohara's Legacy - Dark Purple
+    10: '#4A2B66'   // Ohara's Legacy - Dark Purple
 };
 
-// Tier names (One Piece theme) - Score-based mapping
+// Tier names (Nico Robin archaeological theme)
 const TIER_NAMES = {
-    0: 'No Power',
-    1: 'Common Buff',
-    2: 'Uncommon Buff', 
-    3: 'Rare Buff',
-    4: 'Epic Buff',
-    5: 'Legendary Buff',
-    6: 'Legendary Buff',
-    7: 'Mythical Buff',
-    8: 'Mythical Buff',
-    9: 'Divine Buff',
-    10: 'Divine Buff'
+    0: 'No Ancient Knowledge',
+    1: 'Novice Scholar',
+    2: 'Apprentice Historian', 
+    3: 'Skilled Archaeologist',
+    4: 'Expert Researcher',
+    5: 'Master of Poneglyphs',
+    6: 'Master of Poneglyphs',
+    7: 'Devil Child Wisdom',
+    8: 'Devil Child Wisdom',
+    9: 'Ohara\'s Legacy',
+    10: 'Ohara\'s Legacy'
 };
 
-// Tier emojis (matching score requirements)
+// Tier emojis (scholarly and archaeological theme)
 const TIER_EMOJIS = {
-    0: '💀',  // No power
-    1: '⚪',  // Common
-    2: '🟢',  // Uncommon
-    3: '🔵',  // Rare
-    4: '🟣',  // Epic
-    5: '🟡',  // Legendary
-    6: '🟡',  // Legendary
-    7: '🟠',  // Mythical
-    8: '🟠',  // Mythical
-    9: '🔴',  // Divine
-    10: '🔴' // Divine
+    0: '💀',  // No knowledge
+    1: '📖',  // Novice Scholar
+    2: '📚',  // Apprentice Historian
+    3: '🔍',  // Skilled Archaeologist
+    4: '📜',  // Expert Researcher
+    5: '🏺',  // Master of Poneglyphs
+    6: '🏺',  // Master of Poneglyphs
+    7: '🌸',  // Devil Child Wisdom
+    8: '🌸',  // Devil Child Wisdom
+    9: '🗿',  // Ohara's Legacy
+    10: '🗿' // Ohara's Legacy
 };
 
-// One Piece themed descriptions (score-based)
+// Nico Robin themed descriptions
 const TIER_DESCRIPTIONS = {
-    0: 'Your journey ends here - even the greatest pirates face defeat sometimes',
-    1: 'A common pirate\'s blessing - every legendary journey starts with a single step on the Grand Line',
-    2: 'An uncommon surge of power flows through you - the sea recognizes your growing potential',
-    3: 'A rare treasure of the Grand Line enhances your abilities - you\'re becoming a notable pirate',
-    4: 'Epic power worthy of a Supernova pirate - your name begins to spread across the seas',
-    5: 'Legendary might that rivals the Yonko themselves - the New World trembles at your presence',
-    6: 'Legendary supremacy that shakes the very foundations of the Grand Line itself',
-    7: 'Mythical transcendence beyond mortal limits - even the World Government takes notice',
-    8: 'Mythical dominance that defies the heavens - you stand among the greatest pirates in history',
-    9: 'Divine power that rivals the ancient weapons themselves - the entire world knows your name',
-    10: 'Divine perfection - you\'ve achieved the pinnacle of pirate mastery, rivaling the Pirate King himself!'
+    0: '"Even the greatest scholars started with a single page." - Your journey to knowledge begins here.',
+    1: '"Every book holds a treasure waiting to be discovered." - You\'ve taken your first steps into the world of knowledge.',
+    2: '"History is written by those who seek to understand it." - Your curiosity grows stronger with each page.',
+    3: '"A true archaeologist reads between the lines of history." - You\'re developing a keen eye for hidden truths.',
+    4: '"Research is the art of finding answers to questions not yet asked." - Your expertise is becoming evident.',
+    5: '"The Poneglyphs hold the key to the world\'s greatest mysteries." - You\'ve unlocked ancient wisdom.',
+    6: '"Master of the ancient scripts, your knowledge rivals the scholars of Ohara." - True mastery achieved.',
+    7: '"The Devil Child\'s wisdom flows through you - forbidden knowledge is yours to command." - Exceptional understanding.',
+    8: '"With the wisdom of the Devil Child, even the World Government fears your knowledge." - Legendary insight.',
+    9: '"You carry the legacy of Ohara - the light of knowledge that can never be extinguished." - Divine wisdom.',
+    10: '"Perfect understanding achieved - you embody the complete legacy of Ohara\'s greatest scholar." - Ultimate mastery!'
 };
 
 // Keywords that indicate anime content
@@ -96,13 +96,44 @@ const ANIME_TITLES = [
     'shingeki no kyojin', 'boku no hero academia', 'jojo', 'dragonball'
 ];
 
-// Fallback questions organized by difficulty
+// Fallback questions organized by difficulty with some One Piece/Nico Robin themed questions
 const FALLBACK_QUESTIONS = {
     Easy: [
         {
             question: "Who is the main protagonist of One Piece?",
             options: ["Monkey D. Luffy", "Roronoa Zoro", "Nami", "Sanji"],
             answer: "Monkey D. Luffy",
+            difficulty: "Easy"
+        },
+        {
+            question: "In Steins;Gate, what is the name of the time machine?",
+            options: ["Phone Microwave", "Time Machine", "D-Mail", "SERN"],
+            answer: "Phone Microwave",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Berserk, what is the name of Guts' sword?",
+            options: ["Dragon Slayer", "Iron Reaver", "Demon Blade", "God Hand"],
+            answer: "Dragon Slayer",
+            difficulty: "Hard"
+        }
+    ]
+};
+
+module.exports = {
+    TIER_COLORS,
+    TIER_NAMES,
+    TIER_EMOJIS,
+    TIER_DESCRIPTIONS,
+    ANIME_KEYWORDS,
+    BAD_KEYWORDS,
+    ANIME_TITLES,
+    FALLBACK_QUESTIONS
+};,
+        {
+            question: "What is Nico Robin's Devil Fruit power called?",
+            options: ["Hana Hana no Mi", "Gomu Gomu no Mi", "Mera Mera no Mi", "Hito Hito no Mi"],
+            answer: "Hana Hana no Mi",
             difficulty: "Easy"
         },
         {
@@ -164,19 +195,25 @@ const FALLBACK_QUESTIONS = {
             options: ["Attack on Titan", "Evangelion", "Code Geass", "Gundam"],
             answer: "Attack on Titan",
             difficulty: "Easy"
-        },
-        {
-            question: "In which anime do characters have 'Quirks'?",
-            options: ["My Hero Academia", "Naruto", "One Piece", "Bleach"],
-            answer: "My Hero Academia",
-            difficulty: "Easy"
         }
     ],
     Medium: [
         {
+            question: "What is the name of Nico Robin's home island?",
+            options: ["Ohara", "Alabasta", "Water 7", "Enies Lobby"],
+            answer: "Ohara",
+            difficulty: "Medium"
+        },
+        {
             question: "What is the name of the sea where most of One Piece takes place?",
             options: ["Grand Line", "East Blue", "West Blue", "Red Line"],
             answer: "Grand Line",
+            difficulty: "Medium"
+        },
+        {
+            question: "What was Nico Robin's bounty as a child?",
+            options: ["79,000,000 berries", "80,000,000 berries", "50,000,000 berries", "100,000,000 berries"],
+            answer: "79,000,000 berries",
             difficulty: "Medium"
         },
         {
@@ -232,21 +269,21 @@ const FALLBACK_QUESTIONS = {
             options: ["Wrath", "Pride", "Greed", "Envy"],
             answer: "Wrath",
             difficulty: "Medium"
-        },
-        {
-            question: "In Fire Force, what are the fire-powered beings called?",
-            options: ["Infernals", "Pyromancers", "Fire Demons", "Flame Spirits"],
-            answer: "Infernals",
-            difficulty: "Medium"
-        },
-        {
-            question: "In Black Clover, what is Asta's main trait?",
-            options: ["No magic", "Fire magic", "Wind magic", "Water magic"],
-            answer: "No magic",
-            difficulty: "Medium"
         }
     ],
     Hard: [
+        {
+            question: "What are the ancient stones that Nico Robin can read called?",
+            options: ["Poneglyphs", "Road Stones", "Ancient Tablets", "Historia Stones"],
+            answer: "Poneglyphs",
+            difficulty: "Hard"
+        },
+        {
+            question: "Who was Nico Robin's mentor on Ohara?",
+            options: ["Professor Clover", "Dr. Hiriluk", "Professor Oak", "Dr. Vegapunk"],
+            answer: "Professor Clover",
+            difficulty: "Hard"
+        },
         {
             question: "In One Piece, where do the Straw Hats first meet Brook?",
             options: ["Thriller Bark", "Sabaody Archipelago", "Water 7", "Enies Lobby"],
@@ -306,29 +343,4 @@ const FALLBACK_QUESTIONS = {
             options: ["Pluton, Poseidon, Uranus", "Zeus, Hera, Poseidon", "Ares, Athena, Apollo", "Thor, Odin, Loki"],
             answer: "Pluton, Poseidon, Uranus",
             difficulty: "Hard"
-        },
-        {
-            question: "In Steins;Gate, what is the name of the time machine?",
-            options: ["Phone Microwave", "Time Machine", "D-Mail", "SERN"],
-            answer: "Phone Microwave",
-            difficulty: "Hard"
-        },
-        {
-            question: "In Berserk, what is the name of Guts' sword?",
-            options: ["Dragon Slayer", "Iron Reaver", "Demon Blade", "God Hand"],
-            answer: "Dragon Slayer",
-            difficulty: "Hard"
         }
-    ]
-};
-
-module.exports = {
-    TIER_COLORS,
-    TIER_NAMES,
-    TIER_EMOJIS,
-    TIER_DESCRIPTIONS,
-    ANIME_KEYWORDS,
-    BAD_KEYWORDS,
-    ANIME_TITLES,
-    FALLBACK_QUESTIONS
-};
