@@ -45,19 +45,21 @@ class QuizManager {
 
             // Check if already has active quiz
             if (this.hasActiveQuiz(userId, guildId)) {
-                return await interaction.reply({
+                return await interaction.editReply({
                     content: '❌ **Active Quiz Detected**\n\nYou already have an active quiz session. Please complete it first.',
-                    ephemeral: true
+                    components: []
                 });
             }
 
-            await interaction.deferReply();
+            // Don't defer here - the interaction was already updated in the command
+            // await interaction.deferReply(); // REMOVED - interaction already handled
 
             // Load questions
             const questions = await this.loadQuestions(userId, guildId);
             if (!questions || questions.length < 10) {
                 return await interaction.editReply({
-                    content: '❌ **Failed to Load Questions**\n\nUnable to prepare quiz questions. Please try again later.'
+                    content: '❌ **Failed to Load Questions**\n\nUnable to prepare quiz questions. Please try again later.',
+                    components: []
                 });
             }
 
@@ -81,7 +83,8 @@ class QuizManager {
         } catch (error) {
             console.error('Error starting quiz:', error);
             await interaction.editReply({
-                content: '❌ **Error Starting Quiz**\n\nSomething went wrong. Please try again.'
+                content: '❌ **Error Starting Quiz**\n\nSomething went wrong. Please try again.',
+                components: []
             });
         }
     }
