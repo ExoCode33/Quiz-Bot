@@ -72,7 +72,8 @@ class QuizManager {
                 score: 0,
                 answers: [],
                 startTime: Date.now(),
-                timeRemaining: parseInt(process.env.QUESTION_TIME_LIMIT) || 20
+                timeRemaining: parseInt(process.env.QUESTION_TIME_LIMIT) || 20,
+                rerollsUsed: 0 // Track total rerolls used across all questions
             };
 
             // Save quiz session
@@ -280,22 +281,33 @@ class QuizManager {
             const buttons = question.options.map((option, index) => 
                 new ButtonBuilder()
                     .setCustomId(`answer_${session.userId}_${index}_${option === question.answer}`)
-                    .setLabel(option.substring(0, 70))
-                    .setStyle(index < 2 ? ButtonStyle.Primary : ButtonStyle.Secondary)
+                    .setLabel(option.substring(0, 65))
+                    .setStyle(ButtonStyle.Success) // All green buttons
                     .setEmoji(buttonEmojis[index])
             );
 
-            const rows = [
+            // Add reroll button if rerolls available
+            const components = [
                 new ActionRowBuilder().addComponents(buttons.slice(0, 2)),
                 new ActionRowBuilder().addComponents(buttons.slice(2, 4))
             ];
 
+            if (session.rerollsUsed < 3) {
+                const rerollButton = new ButtonBuilder()
+                    .setCustomId(`reroll_${session.userId}`)
+                    .setLabel(`Reroll Question (${session.rerollsUsed}/3)`)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🎲');
+                
+                components.push(new ActionRowBuilder().addComponents(rerollButton));
+            }
+
             let message;
             if (session.currentQuestion === 0) {
-                await interaction.editReply({ embeds: [embed], components: rows });
+                await interaction.editReply({ embeds: [embed], components });
                 message = await interaction.fetchReply();
             } else {
-                message = await interaction.followUp({ embeds: [embed], components: rows });
+                message = await interaction.followUp({ embeds: [embed], components });
             }
 
             // Start time countdown
@@ -304,12 +316,17 @@ class QuizManager {
             // Set up collector
             const collector = message.createMessageComponentCollector({
                 time: (parseInt(process.env.QUESTION_TIME_LIMIT) || 20) * 1000,
-                filter: i => i.user.id === session.userId && i.customId.startsWith('answer_')
+                filter: i => i.user.id === session.userId && (i.customId.startsWith('answer_') || i.customId.startsWith('reroll_'))
             });
 
             collector.on('collect', async (buttonInteraction) => {
                 this.clearTimeInterval(session.userId, session.guildId);
-                await this.handleAnswerSelection(buttonInteraction, interaction, session);
+                
+                if (buttonInteraction.customId.startsWith('reroll_')) {
+                    await this.handleReroll(buttonInteraction, interaction, session);
+                } else {
+                    await this.handleAnswerSelection(buttonInteraction, interaction, session);
+                }
                 collector.stop();
             });
 
@@ -416,6 +433,63 @@ class QuizManager {
         this.timeIntervals.set(intervalKey, interval);
     }
 
+    async handleReroll(buttonInteraction, originalInteraction, session) {
+        try {
+            await buttonInteraction.deferUpdate();
+            
+            // Increment reroll counter
+            session.rerollsUsed++;
+            
+            console.log(`Reroll used by ${session.userId}: ${session.rerollsUsed}/3`);
+            
+            // Get a new question to replace the current one
+            const newQuestion = await this.getNewQuestion(session);
+            if (newQuestion) {
+                session.questions[session.currentQuestion] = newQuestion;
+                console.log(`✅ Rerolled question ${session.currentQuestion + 1} for user ${session.userId}`);
+            } else {
+                console.warn(`⚠️ Could not find new question for reroll, keeping original`);
+            }
+            
+            // Update session and restart the question
+            await this.saveQuizSession(session.userId, session.guildId, session);
+            
+            // Restart the question with new/same question
+            await this.askQuestion(originalInteraction, session);
+            
+        } catch (error) {
+            console.error('Error handling reroll:', error);
+        }
+    }
+
+    async getNewQuestion(session) {
+        try {
+            // Get recent questions to avoid (including current session questions)
+            const recentQuestions = await this.getRecentQuestions(session.userId, session.guildId);
+            
+            // Add current session questions to avoid list
+            session.questions.forEach(q => {
+                recentQuestions.add(q.question.toLowerCase().trim());
+                recentQuestions.add(this.createQuestionHash(q.question));
+            });
+            
+            // Load new questions
+            const newQuestions = await this.questionLoader.loadQuestions(recentQuestions);
+            
+            if (newQuestions && newQuestions.length > 0) {
+                // Return a random question from the new batch
+                const randomIndex = Math.floor(Math.random() * newQuestions.length);
+                return newQuestions[randomIndex];
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error('Error getting new question for reroll:', error);
+            return null;
+        }
+    }
+
     clearTimeInterval(userId, guildId) {
         const intervalKey = `${userId}_${guildId}`;
         const interval = this.timeIntervals.get(intervalKey);
@@ -452,25 +526,64 @@ class QuizManager {
             
             console.log(`Quiz Q${session.currentQuestion + 1}: ${isCorrect ? '✅' : '❌'} User ${session.userId} - "${selectedAnswer}" (Correct: "${question.answer}")`);
             
-            // Show result
-            await this.showAnswerResult(buttonInteraction, session, isCorrect, selectedAnswer, question.answer);
+            // Show answer reveal in the same embed for 5 seconds
+            await this.showAnswerReveal(buttonInteraction, session, isCorrect, selectedAnswer, question.answer);
             
             // Move to next question or end quiz
             session.currentQuestion++;
             
-            if (session.currentQuestion >= 10) {
-                setTimeout(async () => {
+            setTimeout(async () => {
+                if (session.currentQuestion >= 10) {
                     await this.endQuiz(originalInteraction, session);
-                }, 3000);
-            } else {
-                // Ask for continuation confirmation
-                setTimeout(async () => {
+                } else {
                     await this.askContinuation(originalInteraction, session);
-                }, 3000);
-            }
+                }
+            }, 5000); // Wait 5 seconds before continuing
             
         } catch (error) {
             console.error('Error handling answer selection:', error);
+        }
+    }
+
+    async showAnswerReveal(interaction, session, isCorrect, selectedAnswer, correctAnswer) {
+        try {
+            const questionNum = session.currentQuestion + 1;
+            
+            const embed = new EmbedBuilder()
+                .setColor(isCorrect ? '#00FF00' : '#FF0000')
+                .setTitle('🌊 Continue Quest?')
+                .setDescription(`**Battle ${questionNum} Complete!**\n\n${isCorrect ? '⚔️ **Correct!**' : '💀 **Wrong!**'}\n${isCorrect ? `**${selectedAnswer}**` : `**Your Answer:** ${selectedAnswer}\n**Correct Answer:** ${correctAnswer}`}`)
+                .addFields(
+                    {
+                        name: '📊 Progress',
+                        value: `**${questionNum}/10** completed • **${session.score}** correct • **${Math.round((session.score / questionNum) * 100)}%** success`,
+                        inline: false
+                    },
+                    {
+                        name: '🗺️ Journey',
+                        value: this.createProgressBar(session.currentQuestion + 1, session.answers), // +1 because we just answered
+                        inline: false
+                    },
+                    {
+                        name: '🏆 Current Power',
+                        value: session.score > 0 ? 
+                            `${TIER_EMOJIS[session.score]} **${TIER_NAMES[session.score]}**` : 
+                            '💀 **No Buff Yet**',
+                        inline: true
+                    },
+                    {
+                        name: '⚔️ Remaining',
+                        value: `**${10 - questionNum}** challenges left`,
+                        inline: true
+                    }
+                )
+                .setFooter({ text: '⚠️ Loading next challenge...' })
+                .setTimestamp();
+
+            await interaction.editReply({ embeds: [embed], components: [] });
+            
+        } catch (error) {
+            console.error('Error showing answer reveal:', error);
         }
     }
 
