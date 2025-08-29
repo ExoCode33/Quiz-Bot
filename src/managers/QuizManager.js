@@ -233,11 +233,17 @@ class QuizManager {
             // Reset time remaining
             session.timeRemaining = parseInt(process.env.QUESTION_TIME_LIMIT) || 20;
             
+            // Dynamic color based on progress
+            let embedColor = '#4A90E2'; // Default blue
+            if (session.score >= 7) embedColor = '#FF9800'; // Orange for high scores
+            else if (session.score >= 4) embedColor = '#9C27B0'; // Purple for medium scores
+            else if (session.score >= 2) embedColor = '#2196F3'; // Blue for low scores
+            
             // Create question embed
             const embed = new EmbedBuilder()
-                .setColor('#4A90E2')
-                .setTitle(`⚔️ Grand Line Challenge - Question ${questionNum}/10`)
-                .setDescription(`**${question.question}**\n\n🏴‍☠️ *Choose your answer wisely, pirate!*`)
+                .setColor(embedColor)
+                .setTitle(`⚔️ GRAND LINE CHALLENGE`)
+                .setDescription(`## Question ${questionNum} of 10\n\n**${question.question}**\n\n🏴‍☠️ *The seas test your knowledge, brave pirate! Choose wisely...*`)
                 .addFields(
                     {
                         name: '🗺️ Journey Progress',
@@ -250,28 +256,34 @@ class QuizManager {
                         inline: false
                     },
                     {
-                        name: '🏆 Current Score',
-                        value: `${session.score}/${session.currentQuestion + 1} battles won`,
+                        name: '🏆 Battle Record',
+                        value: `**${session.score}** victories out of **${session.currentQuestion + 1}** battles`,
                         inline: true
                     },
                     {
-                        name: '⚡ Difficulty',
-                        value: `${question.difficulty || 'Medium'}`,
+                        name: '⚡ Challenge Level',
+                        value: `${this.getDifficultyEmoji(question.difficulty)} **${question.difficulty || 'Medium'}**`,
+                        inline: true
+                    },
+                    {
+                        name: '🎯 Current Tier',
+                        value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No power yet',
                         inline: true
                     }
                 )
                 .setFooter({ 
-                    text: `Navigate wisely • Question ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}` 
+                    text: `🌊 The Grand Line awaits your decision • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`,
+                    iconURL: 'https://cdn.discordapp.com/emojis/emoji_id.png' // You can add a custom icon
                 })
                 .setTimestamp();
 
-            // Create answer buttons with One Piece themed emojis
-            const buttonEmojis = ['🥇', '🥈', '🥉', '🏅'];
+            // Create answer buttons with better styling
+            const buttonEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
             const buttons = question.options.map((option, index) => 
                 new ButtonBuilder()
                     .setCustomId(`answer_${session.userId}_${index}_${option === question.answer}`)
-                    .setLabel(option.substring(0, 75))
-                    .setStyle(ButtonStyle.Primary)
+                    .setLabel(option.substring(0, 70)) // Slightly shorter for better display
+                    .setStyle(index < 2 ? ButtonStyle.Primary : ButtonStyle.Secondary)
                     .setEmoji(buttonEmojis[index])
             );
 
@@ -315,6 +327,15 @@ class QuizManager {
         }
     }
 
+    getDifficultyEmoji(difficulty) {
+        switch ((difficulty || 'Medium').toLowerCase()) {
+            case 'easy': return '🟢';
+            case 'medium': return '🟡';
+            case 'hard': return '🔴';
+            default: return '🟡';
+        }
+    }
+
     async startTimeCountdown(interaction, session, message) {
         const timeLimit = parseInt(process.env.QUESTION_TIME_LIMIT) || 20;
         session.timeRemaining = timeLimit;
@@ -337,10 +358,23 @@ class QuizManager {
                 const question = session.questions[session.currentQuestion];
                 const questionNum = session.currentQuestion + 1;
                 
+                // Dynamic color based on time remaining
+                let embedColor = '#4A90E2'; // Default blue
+                if (session.timeRemaining <= 6) {
+                    embedColor = '#FF0000'; // Red for critical time
+                } else if (session.timeRemaining <= 12) {
+                    embedColor = '#FFA500'; // Orange for warning
+                } else {
+                    // Use score-based color
+                    if (session.score >= 7) embedColor = '#FF9800';
+                    else if (session.score >= 4) embedColor = '#9C27B0';
+                    else if (session.score >= 2) embedColor = '#2196F3';
+                }
+                
                 const embed = new EmbedBuilder()
-                    .setColor(session.timeRemaining <= 6 ? '#FF0000' : session.timeRemaining <= 12 ? '#FFA500' : '#4A90E2')
-                    .setTitle(`⚔️ Grand Line Challenge - Question ${questionNum}/10`)
-                    .setDescription(`**${question.question}**\n\n🏴‍☠️ *Choose your answer wisely, pirate!*`)
+                    .setColor(embedColor)
+                    .setTitle(`⚔️ GRAND LINE CHALLENGE`)
+                    .setDescription(`## Question ${questionNum} of 10\n\n**${question.question}**\n\n🏴‍☠️ *${session.timeRemaining <= 6 ? 'Time is running out, pirate! Decide quickly!' : 'The seas test your knowledge, brave pirate! Choose wisely...'}*`)
                     .addFields(
                         {
                             name: '🗺️ Journey Progress',
@@ -353,18 +387,25 @@ class QuizManager {
                             inline: false
                         },
                         {
-                            name: '🏆 Current Score',
-                            value: `${session.score}/${session.currentQuestion + 1} battles won`,
+                            name: '🏆 Battle Record',
+                            value: `**${session.score}** victories out of **${session.currentQuestion + 1}** battles`,
                             inline: true
                         },
                         {
-                            name: '⚡ Difficulty',
-                            value: `${question.difficulty || 'Medium'}`,
+                            name: '⚡ Challenge Level',
+                            value: `${this.getDifficultyEmoji(question.difficulty)} **${question.difficulty || 'Medium'}**`,
+                            inline: true
+                        },
+                        {
+                            name: '🎯 Current Tier',
+                            value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No power yet',
                             inline: true
                         }
                     )
                     .setFooter({ 
-                        text: session.timeRemaining <= 6 ? 'Hurry up, pirate! ⚠️' : `Navigate wisely • Question ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}` 
+                        text: session.timeRemaining <= 6 ? 
+                            '⚠️ URGENT: The Grand Line grows impatient!' : 
+                            `🌊 The Grand Line awaits your decision • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
                     })
                     .setTimestamp();
                 
@@ -441,34 +482,56 @@ class QuizManager {
         try {
             const questionNum = session.currentQuestion + 1;
             
+            // Determine embed color based on current performance
+            let embedColor = '#FF9800'; // Orange default
+            if (session.score >= 7) embedColor = '#4CAF50'; // Green for excellent
+            else if (session.score >= 4) embedColor = '#2196F3'; // Blue for good
+            else if (session.score >= 2) embedColor = '#FFC107'; // Yellow for okay
+            else embedColor = '#FF5722'; // Red for poor
+            
             const embed = new EmbedBuilder()
-                .setColor('#FFA500')
-                .setTitle('🌊 Continue Your Grand Line Journey?')
-                .setDescription(`**Excellent work, pirate!** 🏴‍☠️\n\nYou've conquered another challenge on the Grand Line!\n\n**Current Progress:** Question ${questionNum}/10 complete\n**Battles Won:** ${session.score}/${questionNum}`)
+                .setColor(embedColor)
+                .setTitle('🌊 GRAND LINE CHECKPOINT')
+                .setDescription(`## Battle ${questionNum} Complete!\n\n**Outstanding work, legendary pirate!** 🏴‍☠️\n\nYou've conquered another treacherous challenge on the Grand Line!\n\n*The seas recognize your growing strength...*`)
                 .addFields(
+                    {
+                        name: '📊 Current Progress',
+                        value: `**Battles Completed:** ${questionNum} of 10\n**Victories Claimed:** ${session.score} of ${questionNum}\n**Success Rate:** ${Math.round((session.score / questionNum) * 100)}%`,
+                        inline: false
+                    },
                     {
                         name: '🗺️ Journey Progress',
                         value: this.createProgressBar(session.currentQuestion, session.answers),
                         inline: false
                     },
                     {
-                        name: '⚔️ What\'s Next?',
-                        value: 'Ready to face the next challenge? The Grand Line awaits your decision!',
+                        name: '🏆 Current Standing',
+                        value: session.score > 0 ? 
+                            `${TIER_EMOJIS[session.score]} **${TIER_NAMES[session.score]}**\n*${TIER_DESCRIPTIONS[session.score].substring(0, 100)}...*` : 
+                            '💀 **No Power Yet**\n*Even the greatest pirates started from nothing...*',
+                        inline: false
+                    },
+                    {
+                        name: '⚔️ What Lies Ahead',
+                        value: `**${10 - questionNum} challenges remaining**\n\nThe Grand Line grows more dangerous ahead. Steel your resolve and prepare for greater trials!\n\n*Will you continue your legendary journey?*`,
                         inline: false
                     }
                 )
-                .setFooter({ text: '⚠️ You have 1 minute to decide • No response = Abandon journey' })
+                .setFooter({ 
+                    text: '⚠️ Decision Time: 60 seconds • Silence means abandoning your quest',
+                    iconURL: 'https://example.com/pirate-flag.png'
+                })
                 .setTimestamp();
 
             const buttons = [
                 new ButtonBuilder()
                     .setCustomId(`continue_${session.userId}`)
-                    .setLabel('Continue Journey')
+                    .setLabel('SAIL FORWARD!')
                     .setStyle(ButtonStyle.Success)
                     .setEmoji('⚔️'),
                 new ButtonBuilder()
                     .setCustomId(`abandon_${session.userId}`)
-                    .setLabel('Abandon Quest')
+                    .setLabel('Retreat to Port')
                     .setStyle(ButtonStyle.Danger)
                     .setEmoji('🏳️')
             ];
@@ -488,9 +551,15 @@ class QuizManager {
                         embeds: [
                             new EmbedBuilder()
                                 .setColor('#00FF00')
-                                .setTitle('⚔️ Sailing Forward!')
-                                .setDescription('**Brave choice, pirate!** 🏴‍☠️\n\nPreparing your next Grand Line challenge...')
-                                .setFooter({ text: 'Next question loading...' })
+                                .setTitle('⚔️ FULL SPEED AHEAD!')
+                                .setDescription(`## Brave Decision, Captain!\n\n**The spirit of a true Pirate King flows through you!** 🏴‍☠️\n\n🌊 Charting course to the next treacherous waters...\n⚡ Preparing even greater challenges...\n🗺️ The Grand Line respects your courage!\n\n*Your legend continues to grow...*`)
+                                .addFields({
+                                    name: '🚢 Status',
+                                    value: '`████████░░` 80% - Next challenge loading...',
+                                    inline: false
+                                })
+                                .setFooter({ text: 'The greatest adventures require the greatest courage!' })
+                                .setTimestamp()
                         ],
                         components: []
                     });
@@ -828,23 +897,25 @@ class QuizManager {
         const percentage = (timeRemaining / totalTime) * 100;
         
         let timeBar = '';
+        
+        // Create 10 segments, countdown from right to left
         for (let i = 0; i < 10; i++) {
-            const segmentPercentage = ((9 - i) / 9) * 100;
+            const segmentPercentage = (i / 10) * 100;
             
             if (percentage > segmentPercentage) {
                 if (percentage >= 66) {
-                    timeBar += '🟩';
+                    timeBar += '🟩 ';
                 } else if (percentage >= 33) {
-                    timeBar += '🟨';
+                    timeBar += '🟨 ';
                 } else {
-                    timeBar += '🟥';
+                    timeBar += '🟥 ';
                 }
             } else {
-                timeBar += '⬛';
+                timeBar += '⬛ ';
             }
         }
         
-        return `${timeBar} \`${timeRemaining}s\``;
+        return `${timeBar.trim()} \`${timeRemaining}s remaining\``;
     }
 
     createAnswerSummary(answers) {
