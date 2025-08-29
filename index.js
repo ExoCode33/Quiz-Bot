@@ -54,6 +54,9 @@ class AnimeQuizBot {
             // Setup daily reset scheduler
             this.setupDailyReset();
             
+            // Setup periodic cleanup
+            this.setupPeriodicCleanup();
+            
             // Login to Discord
             await this.client.login(process.env.DISCORD_TOKEN);
             
@@ -139,6 +142,11 @@ class AnimeQuizBot {
         this.client.once('clientReady', () => {
             console.log(`⚓ Logged in as ${this.client.user.tag}`);
             console.log(`🏴‍☠️ Serving ${this.client.guilds.cache.size} server(s)`);
+            
+            // Log Redis status
+            if (this.redisManager?.connected) {
+                console.log('📡 Redis optimization active - faster quiz loading enabled');
+            }
         });
 
         this.client.on('interactionCreate', async (interaction) => {
@@ -204,6 +212,44 @@ class AnimeQuizBot {
         }, {
             timezone: 'America/New_York'  // EDT timezone
         });
+    }
+
+    setupPeriodicCleanup() {
+        // Run cleanup every 30 minutes
+        cron.schedule('*/30 * * * *', async () => {
+            try {
+                console.log('🧹 Running periodic cleanup...');
+                
+                // Clean up expired preloaded questions from memory
+                if (this.quizManager) {
+                    this.quizManager.cleanupPreloadedQuestions();
+                }
+                
+                // Clean up Redis expired keys
+                if (this.redisManager?.connected) {
+                    await this.redisManager.cleanupExpiredKeys();
+                }
+                
+                console.log('✅ Periodic cleanup completed');
+            } catch (error) {
+                console.error('❌ Periodic cleanup failed:', error);
+            }
+        });
+
+        // Run Redis optimization every 2 hours
+        cron.schedule('0 */2 * * *', async () => {
+            try {
+                if (this.redisManager?.connected) {
+                    console.log('🔧 Running Redis optimization...');
+                    await this.redisManager.optimizeQuestionCache();
+                    console.log('✅ Redis optimization completed');
+                }
+            } catch (error) {
+                console.error('❌ Redis optimization failed:', error);
+            }
+        });
+
+        console.log('⚙️ Scheduled periodic cleanup and optimization tasks');
     }
 
     async shutdown() {
