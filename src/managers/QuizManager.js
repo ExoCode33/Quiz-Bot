@@ -90,27 +90,13 @@ class QuizManager {
                 // Save question hashes to history (async)
                 this.saveQuestionsToHistory(userId, guildId, questions).catch(console.error);
                 
-                // Log all preloaded questions with colored output
-                console.log(`\n🌸 ═══════════════════════════════════════════════════════════════════════════════`);
-                console.log(`📚 NICO ROBIN'S ANCIENT KNOWLEDGE LIBRARY - ${questions.length} TEXTS PREPARED`);
-                console.log(`🔍 For Archaeologist: ${userId} in Guild: ${guildId}`);
-                console.log(`🌸 ═══════════════════════════════════════════════════════════════════════════════\n`);
-                
+                // Clean, organized logging
+                console.log(`\n📚 Nico Robin's Library - ${questions.length} Questions Preloaded for User ${userId}`);
                 questions.forEach((question, index) => {
-                    console.log(`📜 Ancient Text ${index + 1}/${questions.length}:`);
-                    console.log(`   Question: ${question.question}`);
-                    console.log(`   \x1b[32mAnswer: ${question.answer}\x1b[0m`); // Green color
-                    console.log(`   Options: [${question.options.join(', ')}]`);
-                    console.log(`   Difficulty: ${question.difficulty || 'Medium'}`);
-                    console.log(`   Source: ${question.source || 'Fallback'}`);
-                    console.log(''); // Empty line for spacing
+                    console.log(`Question ${index + 1} - \x1b[32mAnswer ${index + 1}\x1b[0m`);
                 });
+                console.log(`✅ Quiz ready with ${questions.length} questions\n`);
                 
-                console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════`);
-                console.log(`🌸 "Knowledge is a treasure that follows its owner everywhere." - Nico Robin`);
-                console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════\n`);
-                
-                console.log(`✅ Preloaded ${questions.length} questions for user ${userId}`);
                 return questions;
             }
 
@@ -306,43 +292,61 @@ class QuizManager {
             if (session.score >= 7) embedColor = '#FF9800';
             else if (session.score >= 4) embedColor = '#9C27B0';
             else if (session.score >= 2) embedColor = '#2196F3';
+
+            // Load GIF for question pages
+            let attachment = null;
+            const gifPath = require('path').join(process.cwd(), 'assets', 'anime.gif');
             
-            // Create question embed with Nico Robin theme
+            try {
+                if (require('fs').existsSync(gifPath)) {
+                    const { AttachmentBuilder } = require('discord.js');
+                    attachment = new AttachmentBuilder(gifPath, { name: 'anime.gif' });
+                }
+            } catch (error) {
+                console.warn('⚠️ Error loading anime.gif for question:', error.message);
+            }
+            
+            // Create question embed with Nico Robin theme + GIF
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
-                .setTitle(`📚 Ancient Text ${questionNum}/10`)
+                .setTitle(`⚔️ Question ${questionNum}/10`)
                 .setDescription(`**"Let me read this passage for you..."**\n\n${question.question}`)
                 .addFields(
                     {
-                        name: '🔍 Archaeological Progress',
+                        name: '🗺️ Progress',
                         value: this.createProgressBar(session.currentQuestion, session.answers),
                         inline: false
                     },
                     {
-                        name: '⏳ Research Time Remaining',
+                        name: '⏱️ Time Remaining',
                         value: this.createTimeBar(session.timeRemaining),
                         inline: false
                     },
                     {
-                        name: '📜 Knowledge Score',
+                        name: '🏆 Score',
                         value: `${session.score}/${session.currentQuestion + 1}`,
                         inline: true
                     },
                     {
-                        name: '🏺 Text Complexity',
+                        name: '⚡ Difficulty',
                         value: `${this.getDifficultyEmoji(question.difficulty)} ${question.difficulty || 'Medium'}`,
                         inline: true
                     },
                     {
-                        name: '🌸 Current Wisdom',
-                        value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No Ancient Knowledge',
+                        name: '🎯 Current Buff',
+                        value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 None',
                         inline: true
                     }
                 )
                 .setFooter({ 
-                    text: `"Knowledge is power." • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
+                    text: `Choose wisely • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
                 })
                 .setTimestamp();
+
+            // Add GIF to question pages
+            if (attachment) {
+                embed.setImage('attachment://anime.gif');
+            }
 
             // Create answer buttons
             const buttonEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
@@ -363,19 +367,24 @@ class QuizManager {
             if (session.rerollsUsed < 3 && session.extraQuestions && session.extraQuestions.length > 0) {
                 const rerollButton = new ButtonBuilder()
                     .setCustomId(`reroll_${session.userId}`)
-                    .setLabel(`Reread Text (${session.rerollsUsed}/3)`)
+                    .setLabel(`Reroll Question (${session.rerollsUsed}/3)`)
                     .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🌸');
+                    .setEmoji('🎲');
                 
                 components.push(new ActionRowBuilder().addComponents(rerollButton));
             }
 
             let message;
+            const messageData = { embeds: [embed], components };
+            if (attachment) {
+                messageData.files = [attachment];
+            }
+
             if (session.currentQuestion === 0) {
-                await interaction.editReply({ embeds: [embed], components });
+                await interaction.editReply(messageData);
                 message = await interaction.fetchReply();
             } else {
-                message = await interaction.followUp({ embeds: [embed], components });
+                message = await interaction.followUp(messageData);
             }
 
             // Start time countdown
@@ -455,39 +464,39 @@ class QuizManager {
                 
                 const embed = new EmbedBuilder()
                     .setColor(embedColor)
-                    .setTitle(`📚 Ancient Text ${questionNum}/10`)
+                    .setTitle(`⚔️ Question ${questionNum}/10`)
                     .setDescription(`**"Let me read this passage for you..."**\n\n${question.question}`)
                     .addFields(
                         {
-                            name: '🔍 Archaeological Progress',
+                            name: '🗺️ Progress',
                             value: this.createProgressBar(session.currentQuestion, session.answers),
                             inline: false
                         },
                         {
-                            name: '⏳ Research Time Remaining',
+                            name: '⏱️ Time Remaining',
                             value: this.createTimeBar(session.timeRemaining),
                             inline: false
                         },
                         {
-                            name: '📜 Knowledge Score',
+                            name: '🏆 Score',
                             value: `${session.score}/${session.currentQuestion + 1}`,
                             inline: true
                         },
                         {
-                            name: '🏺 Text Complexity',
+                            name: '⚡ Difficulty',
                             value: `${this.getDifficultyEmoji(question.difficulty)} ${question.difficulty || 'Medium'}`,
                             inline: true
                         },
                         {
-                            name: '🌸 Current Wisdom',
-                            value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No Ancient Knowledge',
+                            name: '🎯 Current Buff',
+                            value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 None',
                             inline: true
                         }
                     )
                     .setFooter({ 
                         text: session.timeRemaining <= 6 ? 
                             '⚠️ "Time is running out, archaeologist!"' : 
-                            `"Knowledge is power." • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
+                            `Choose wisely • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
                     })
                     .setTimestamp();
                 
