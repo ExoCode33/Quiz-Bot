@@ -636,19 +636,28 @@ class QuizManager {
             console.log(`Correct:  ${question.answer}`);
             console.log(`Score: ${session.score}/${session.currentQuestion + 1}\n`);
             
-            // Show answer reveal with fresh GIF
-            await this.showAnswerReveal(buttonInteraction, session, isCorrect, selectedAnswer, question.answer);
-            
             // Move to next question or end quiz
             session.currentQuestion++;
             
-            setTimeout(async () => {
+            if (isCorrect) {
+                // For correct answers, go straight to continuation or end quiz
                 if (session.currentQuestion >= 10) {
                     await this.endQuiz(originalInteraction, session);
                 } else {
                     await this.askContinuation(originalInteraction, session);
                 }
-            }, 5000);
+            } else {
+                // For incorrect answers, show the answer reveal first
+                await this.showAnswerReveal(buttonInteraction, session, isCorrect, selectedAnswer, question.answer);
+                
+                setTimeout(async () => {
+                    if (session.currentQuestion >= 10) {
+                        await this.endQuiz(originalInteraction, session);
+                    } else {
+                        await this.askContinuation(originalInteraction, session);
+                    }
+                }, 5000);
+            }
             
         } catch (error) {
             console.error('Error handling answer selection:', error);
@@ -755,11 +764,7 @@ class QuizManager {
                 .setFooter({ text: '⚠️ 60 seconds to decide • No response = Quiz abandoned' })
                 .setTimestamp();
 
-            // Keep GIF at the top for continuation screen
-            if (gifAttachment) {
-                embed.setImage(`attachment://${gifAttachment.name}`);
-            }
-
+            // NO GIF on continuation screen
             const buttons = [
                 new ButtonBuilder()
                     .setCustomId(`continue_${session.userId}`)
@@ -776,9 +781,6 @@ class QuizManager {
             const row = new ActionRowBuilder().addComponents(buttons);
             
             const messageData = { embeds: [embed], components: [row] };
-            if (gifAttachment) {
-                messageData.files = [gifAttachment];
-            }
             
             const message = await interaction.followUp(messageData);
 
@@ -789,32 +791,9 @@ class QuizManager {
 
             collector.on('collect', async (buttonInteraction) => {
                 if (buttonInteraction.customId === `continue_${session.userId}`) {
-                    // Create fresh GIF for loading screen
-                    const loadingGif = this.createGifAttachment();
-                    
-                    const loadingEmbed = new EmbedBuilder()
-                        .setColor('#00FF00')
-                        .setTitle('⚔️ Onward!')
-                        .setDescription('**Loading next question...**')
-                        .setFooter({ text: 'Preparing question...' });
-                    
-                    // Keep GIF at the top for loading screen
-                    if (loadingGif) {
-                        loadingEmbed.setImage(`attachment://${loadingGif.name}`);
-                    }
-                    
-                    const updateData = { embeds: [loadingEmbed], components: [] };
-                    if (loadingGif) {
-                        updateData.files = [loadingGif];
-                    }
-                    
-                    await buttonInteraction.update(updateData);
-                    
+                    // Remove the "Onward!" loading screen, go directly to next question
                     await this.saveQuizSession(session.userId, session.guildId, session);
-                    
-                    setTimeout(async () => {
-                        await this.askQuestion(interaction, session);
-                    }, 2000);
+                    await this.askQuestion(interaction, session);
                     
                 } else {
                     await this.handleAbandon(buttonInteraction, session);
@@ -835,9 +814,7 @@ class QuizManager {
 
     async handleAbandon(interaction, session) {
         try {
-            // Create fresh GIF for abandon screen
-            const gifAttachment = this.createGifAttachment();
-            
+            // NO GIF for abandon screen
             const embed = new EmbedBuilder()
                 .setColor('#FF0000')
                 .setTitle('🏳️ Quiz Abandoned')
@@ -845,17 +822,7 @@ class QuizManager {
                 .setFooter({ text: 'Return tomorrow for a new quiz!' })
                 .setTimestamp();
             
-            // Keep GIF at the top for abandon screen
-            if (gifAttachment) {
-                embed.setImage(`attachment://${gifAttachment.name}`);
-            }
-            
-            const updateData = { embeds: [embed], components: [] };
-            if (gifAttachment) {
-                updateData.files = [gifAttachment];
-            }
-            
-            await interaction.update(updateData);
+            await interaction.update({ embeds: [embed], components: [] });
             
             // Clean up session
             await this.cleanupQuizSession(session.userId, session.guildId);
