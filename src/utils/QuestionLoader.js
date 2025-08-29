@@ -2,203 +2,423 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 
 class QuestionLoader {
     constructor() {
-        // Optimized API endpoints with better error handling
-        this.apiEndpoints = [
-            {
-                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=easy',
-                name: 'OpenTDB-Easy',
-                priority: 1,
-                maxRetries: 3,
-                delay: 1000,
-                timeout: 12000
-            },
-            {
-                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=medium',
-                name: 'OpenTDB-Medium', 
-                priority: 1,
-                maxRetries: 3,
-                delay: 1200,
-                timeout: 12000
-            },
-            {
-                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=hard',
-                name: 'OpenTDB-Hard',
-                priority: 1,
-                maxRetries: 3,
-                delay: 1400,
-                timeout: 12000
-            },
-            {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=easy',
-                name: 'TriviaAPI-Easy',
-                priority: 2,
-                maxRetries: 2,
-                delay: 800,
-                timeout: 10000
-            },
-            {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=medium',
-                name: 'TriviaAPI-Medium',
-                priority: 2,
-                maxRetries: 2,
-                delay: 1000,
-                timeout: 10000
-            },
-            {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=hard',
-                name: 'TriviaAPI-Hard',
-                priority: 2,
-                maxRetries: 2,
-                delay: 1200,
-                timeout: 10000
-            }
-        ];
-        
-        // Rate limiting configuration
-        this.lastApiCall = new Map();
-        this.minDelayBetweenCalls = 1500; // Increased delay
-        
-        // Simple stats tracking
-        this.sessionStats = {
-            totalCalls: 0,
-            successfulCalls: 0,
-            totalQuestions: 0,
-            validQuestions: 0
+        // Question pool targets
+        this.questionPoolTargets = {
+            easy: 25,
+            medium: 50,
+            hard: 50
         };
-    }
-
-    async loadQuestions(avoidQuestions = new Set(), targetCount = 13) {
-        try {
-            // Reset session stats
-            this.sessionStats = { totalCalls: 0, successfulCalls: 0, totalQuestions: 0, validQuestions: 0 };
-            
-            console.log(`🔄 Loading ${targetCount} anime quiz questions with improved system...`);
-            
-            // Load questions from APIs first with better error handling
-            const apiQuestions = await this.fetchFromAllAPIs(avoidQuestions);
-            console.log(`📡 Received ${apiQuestions.length} total questions from all APIs`);
-            
-            // Log simple stats
-            this.logSimpleStats();
-            
-            // Always supplement with fallbacks for reliability
-            let allQuestions = [...apiQuestions];
-            
-            console.log(`📚 Adding fallback questions for reliability...`);
-            
-            const fallbacksNeeded = Math.max(targetCount - allQuestions.length + 8, 20); // Ensure we have extras
-            const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, new Set(), fallbacksNeeded);
-            
-            allQuestions = [...allQuestions, ...fallbackQuestions];
-            console.log(`📚 Total questions after adding fallbacks: ${allQuestions.length}`);
-            
-            // Separate questions by difficulty
-            const questionsByDifficulty = this.separateQuestionsByDifficulty(allQuestions, avoidQuestions);
-            
-            // Build quiz with proper progression: 2 easy, 4 medium, 4 hard, 3 extra
-            const quizQuestions = [];
-            const usedQuestions = new Set();
-            
-            // Add 2 easy questions (Q1-Q2)
-            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.easy, usedQuestions, 2, 'Easy');
-            
-            // Add 4 medium questions (Q3-Q6)
-            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.medium, usedQuestions, 4, 'Medium');
-            
-            // Add 4 hard questions (Q7-Q10)
-            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.hard, usedQuestions, 4, 'Hard');
-            
-            // Add 3 extra questions for rerolls
-            const allRemaining = [
-                ...questionsByDifficulty.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-                ...questionsByDifficulty.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-                ...questionsByDifficulty.hard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
-            ];
-            this.shuffleArray(allRemaining);
-            this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, 3, 'Mixed');
-            
-            // If we still don't have enough, fill with any available
-            if (quizQuestions.length < targetCount) {
-                const remainingNeeded = targetCount - quizQuestions.length;
-                console.log(`⚠️ Still need ${remainingNeeded} more questions, filling with any available...`);
-                
-                const anyRemaining = allQuestions.filter(q => 
-                    !usedQuestions.has(q.question.toLowerCase().trim())
-                );
-                
-                this.shuffleArray(anyRemaining);
-                this.addQuestionsFromPool(quizQuestions, anyRemaining, usedQuestions, remainingNeeded, 'Fill');
-            }
-            
-            console.log(`✅ Loaded ${quizQuestions.length} questions with difficulty progression:`);
-            console.log(`   Q1-Q2:  Easy (${Math.min(2, quizQuestions.length)})`);
-            console.log(`   Q3-Q6:  Medium (${Math.min(4, Math.max(0, quizQuestions.length - 2))})`);
-            console.log(`   Q7-Q10: Hard (${Math.min(4, Math.max(0, quizQuestions.length - 6))})`);
-            console.log(`   Extra:  Rerolls (${Math.max(0, quizQuestions.length - 10)})`);
-            
-            this.logDifficultyStats(quizQuestions);
-            
-            return quizQuestions.slice(0, targetCount);
-            
-        } catch (error) {
-            console.error('❌ Error loading questions:', error);
-            
-            // Log simple stats even on error
-            this.logSimpleStats();
-            
-            return this.buildFallbackQuestionsWithProgression(avoidQuestions, targetCount);
-        }
-    }
-
-    logSimpleStats() {
-        const successRate = this.sessionStats.totalCalls > 0 ? 
-            ((this.sessionStats.successfulCalls / this.sessionStats.totalCalls) * 100).toFixed(1) : '0.0';
-        const validationRate = this.sessionStats.totalQuestions > 0 ? 
-            ((this.sessionStats.validQuestions / this.sessionStats.totalQuestions) * 100).toFixed(1) : '0.0';
-
-        console.log(`📊 Session Summary: ${this.sessionStats.successfulCalls}/${this.sessionStats.totalCalls} API calls successful (${successRate}%)`);
-        console.log(`📚 Question Quality: ${this.sessionStats.validQuestions}/${this.sessionStats.totalQuestions} questions valid (${validationRate}%)`);
-    }
-
-    separateQuestionsByDifficulty(questions, avoidQuestions) {
-        const separated = {
+        
+        // Minimum thresholds to trigger regeneration
+        this.questionPoolMinimums = {
+            easy: 10,
+            medium: 20,
+            hard: 20
+        };
+        
+        // Current pool status
+        this.questionPools = {
             easy: [],
             medium: [],
             hard: []
         };
         
-        const usedQuestions = new Set();
+        // API endpoints with better rate limiting
+        this.apiEndpoints = [
+            {
+                url: 'https://opentdb.com/api.php?amount=10&category=31&type=multiple&difficulty=easy',
+                name: 'OpenTDB-Easy',
+                priority: 1,
+                maxRetries: 3,
+                delay: 3000,
+                timeout: 15000,
+                difficulty: 'easy'
+            },
+            {
+                url: 'https://opentdb.com/api.php?amount=10&category=31&type=multiple&difficulty=medium',
+                name: 'OpenTDB-Medium', 
+                priority: 1,
+                maxRetries: 3,
+                delay: 3500,
+                timeout: 15000,
+                difficulty: 'medium'
+            },
+            {
+                url: 'https://opentdb.com/api.php?amount=10&category=31&type=multiple&difficulty=hard',
+                name: 'OpenTDB-Hard',
+                priority: 1,
+                maxRetries: 3,
+                delay: 4000,
+                timeout: 15000,
+                difficulty: 'hard'
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=15&difficulty=easy',
+                name: 'TriviaAPI-Easy',
+                priority: 2,
+                maxRetries: 2,
+                delay: 2000,
+                timeout: 12000,
+                difficulty: 'easy'
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=15&difficulty=medium',
+                name: 'TriviaAPI-Medium',
+                priority: 2,
+                maxRetries: 2,
+                delay: 2500,
+                timeout: 12000,
+                difficulty: 'medium'
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=15&difficulty=hard',
+                name: 'TriviaAPI-Hard',
+                priority: 2,
+                maxRetries: 2,
+                delay: 3000,
+                timeout: 12000,
+                difficulty: 'hard'
+            }
+        ];
         
-        for (const question of questions) {
-            const questionKey = question.question.toLowerCase().trim();
+        // Global request queue for rate limiting
+        this.requestQueue = [];
+        this.isProcessingQueue = false;
+        this.globalLastRequest = 0;
+        this.globalMinDelay = 4000; // 4 seconds between requests
+        
+        // Pool generation status
+        this.isGeneratingPools = false;
+        this.poolGenerationInterval = null;
+        
+        // Redis manager reference (will be set externally)
+        this.redis = null;
+        
+        // Start systems
+        this.startQueueProcessor();
+        this.startPoolMonitoring();
+        
+        console.log('🏊 Question Pool System initialized');
+        console.log(`📊 Targets: Easy: ${this.questionPoolTargets.easy}, Medium: ${this.questionPoolTargets.medium}, Hard: ${this.questionPoolTargets.hard}`);
+    }
+
+    // Set Redis manager reference
+    setRedisManager(redisManager) {
+        this.redis = redisManager;
+    }
+
+    // Initialize question pools on bot startup
+    async initializeQuestionPools() {
+        try {
+            console.log('🚀 Initializing question pools...');
             
-            if (usedQuestions.has(questionKey) || avoidQuestions.has(questionKey)) {
-                continue;
+            // Clear any existing pools in Redis on restart
+            if (this.redis?.connected) {
+                await this.redis.client.del(this.redis.key('question_pool:easy'));
+                await this.redis.client.del(this.redis.key('question_pool:medium'));
+                await this.redis.client.del(this.redis.key('question_pool:hard'));
+                console.log('🧹 Cleared existing question pools from Redis');
             }
             
-            usedQuestions.add(questionKey);
+            // Load fallback questions into pools immediately
+            this.loadFallbackIntoPools();
             
-            const difficulty = (question.difficulty || 'medium').toLowerCase();
+            // Save initial pools to Redis
+            await this.savePoolsToRedis();
             
-            if (difficulty === 'easy' || difficulty === 'beginner') {
-                separated.easy.push(question);
-            } else if (difficulty === 'hard' || difficulty === 'expert' || difficulty === 'difficult') {
-                separated.hard.push(question);
-            } else {
-                separated.medium.push(question);
+            // Start generating API questions in background
+            this.generateAllPoolsAsync();
+            
+            console.log('✅ Question pools initialized');
+            
+        } catch (error) {
+            console.error('❌ Error initializing question pools:', error);
+        }
+    }
+
+    // Load fallback questions into pools
+    loadFallbackIntoPools() {
+        // Add all fallback questions to pools
+        this.questionPools.easy = [...FALLBACK_QUESTIONS.Easy];
+        this.questionPools.medium = [...FALLBACK_QUESTIONS.Medium];
+        this.questionPools.hard = [...FALLBACK_QUESTIONS.Hard];
+        
+        // Shuffle pools
+        this.shuffleArray(this.questionPools.easy);
+        this.shuffleArray(this.questionPools.medium);
+        this.shuffleArray(this.questionPools.hard);
+        
+        console.log(`📚 Loaded fallbacks: Easy: ${this.questionPools.easy.length}, Medium: ${this.questionPools.medium.length}, Hard: ${this.questionPools.hard.length}`);
+    }
+
+    // Save pools to Redis
+    async savePoolsToRedis() {
+        if (!this.redis?.connected) return;
+        
+        try {
+            await Promise.all([
+                this.redis.client.setEx(
+                    this.redis.key('question_pool:easy'),
+                    24 * 60 * 60, // 24 hours
+                    JSON.stringify(this.questionPools.easy)
+                ),
+                this.redis.client.setEx(
+                    this.redis.key('question_pool:medium'),
+                    24 * 60 * 60,
+                    JSON.stringify(this.questionPools.medium)
+                ),
+                this.redis.client.setEx(
+                    this.redis.key('question_pool:hard'),
+                    24 * 60 * 60,
+                    JSON.stringify(this.questionPools.hard)
+                )
+            ]);
+            
+            console.log('💾 Saved question pools to Redis');
+        } catch (error) {
+            console.error('❌ Error saving pools to Redis:', error);
+        }
+    }
+
+    // Load pools from Redis
+    async loadPoolsFromRedis() {
+        if (!this.redis?.connected) return false;
+        
+        try {
+            const [easyData, mediumData, hardData] = await Promise.all([
+                this.redis.client.get(this.redis.key('question_pool:easy')),
+                this.redis.client.get(this.redis.key('question_pool:medium')),
+                this.redis.client.get(this.redis.key('question_pool:hard'))
+            ]);
+            
+            if (easyData) this.questionPools.easy = JSON.parse(easyData);
+            if (mediumData) this.questionPools.medium = JSON.parse(mediumData);
+            if (hardData) this.questionPools.hard = JSON.parse(hardData);
+            
+            console.log(`📥 Loaded pools from Redis: Easy: ${this.questionPools.easy.length}, Medium: ${this.questionPools.medium.length}, Hard: ${this.questionPools.hard.length}`);
+            return true;
+        } catch (error) {
+            console.error('❌ Error loading pools from Redis:', error);
+            return false;
+        }
+    }
+
+    // Start pool monitoring
+    startPoolMonitoring() {
+        // Check pools every 30 seconds
+        this.poolGenerationInterval = setInterval(async () => {
+            await this.checkAndReplenishPools();
+        }, 30000);
+        
+        console.log('👁️ Started pool monitoring (30s intervals)');
+    }
+
+    // Check pools and replenish if needed
+    async checkAndReplenishPools() {
+        try {
+            const currentCounts = {
+                easy: this.questionPools.easy.length,
+                medium: this.questionPools.medium.length,
+                hard: this.questionPools.hard.length
+            };
+            
+            const needsReplenishment = {
+                easy: currentCounts.easy < this.questionPoolMinimums.easy,
+                medium: currentCounts.medium < this.questionPoolMinimums.medium,
+                hard: currentCounts.hard < this.questionPoolMinimums.hard
+            };
+            
+            if (needsReplenishment.easy || needsReplenishment.medium || needsReplenishment.hard) {
+                console.log('🔄 Pool replenishment needed:');
+                console.log(`   Easy: ${currentCounts.easy}/${this.questionPoolTargets.easy} ${needsReplenishment.easy ? '⚠️' : '✅'}`);
+                console.log(`   Medium: ${currentCounts.medium}/${this.questionPoolTargets.medium} ${needsReplenishment.medium ? '⚠️' : '✅'}`);
+                console.log(`   Hard: ${currentCounts.hard}/${this.questionPoolTargets.hard} ${needsReplenishment.hard ? '⚠️' : '✅'}`);
+                
+                this.generateAllPoolsAsync();
+            }
+        } catch (error) {
+            console.error('❌ Error checking pools:', error);
+        }
+    }
+
+    // Generate all pools asynchronously
+    async generateAllPoolsAsync() {
+        if (this.isGeneratingPools) {
+            console.log('⏳ Pool generation already in progress, skipping...');
+            return;
+        }
+        
+        this.isGeneratingPools = true;
+        console.log('🏭 Starting pool generation...');
+        
+        try {
+            // Generate questions for each difficulty
+            await this.generatePoolQuestions('easy');
+            await this.generatePoolQuestions('medium');
+            await this.generatePoolQuestions('hard');
+            
+            // Save updated pools
+            await this.savePoolsToRedis();
+            
+            console.log('✅ Pool generation completed');
+        } catch (error) {
+            console.error('❌ Error in pool generation:', error);
+        } finally {
+            this.isGeneratingPools = false;
+        }
+    }
+
+    // Generate questions for specific difficulty pool
+    async generatePoolQuestions(difficulty) {
+        const currentCount = this.questionPools[difficulty].length;
+        const target = this.questionPoolTargets[difficulty];
+        const needed = Math.max(0, target - currentCount);
+        
+        if (needed === 0) {
+            console.log(`✅ ${difficulty} pool is full (${currentCount}/${target})`);
+            return;
+        }
+        
+        console.log(`🔄 Generating ${needed} ${difficulty} questions...`);
+        
+        // Get APIs for this difficulty
+        const difficultyAPIs = this.apiEndpoints.filter(api => api.difficulty === difficulty);
+        
+        const newQuestions = [];
+        const existingQuestions = new Set(
+            this.questionPools[difficulty].map(q => q.question.toLowerCase().trim())
+        );
+        
+        // Try each API
+        for (const apiConfig of difficultyAPIs) {
+            if (newQuestions.length >= needed) break;
+            
+            try {
+                console.log(`📡 Fetching from ${apiConfig.name}...`);
+                const questions = await this.fetchFromSingleAPIWithRetry(apiConfig, existingQuestions, 1);
+                
+                for (const question of questions) {
+                    const questionKey = question.question.toLowerCase().trim();
+                    
+                    if (!existingQuestions.has(questionKey) && newQuestions.length < needed) {
+                        newQuestions.push(question);
+                        existingQuestions.add(questionKey);
+                    }
+                }
+                
+                console.log(`✅ ${apiConfig.name}: Added ${questions.length} questions to ${difficulty} pool`);
+                
+            } catch (error) {
+                console.warn(`⚠️ ${apiConfig.name} failed: ${error.message}`);
             }
         }
         
-        this.shuffleArray(separated.easy);
-        this.shuffleArray(separated.medium);
-        this.shuffleArray(separated.hard);
-        
-        console.log(`📊 Questions by Difficulty: Easy: ${separated.easy.length}, Medium: ${separated.medium.length}, Hard: ${separated.hard.length}`);
-        
-        return separated;
+        // Add new questions to pool
+        if (newQuestions.length > 0) {
+            this.questionPools[difficulty].push(...newQuestions);
+            this.shuffleArray(this.questionPools[difficulty]);
+            console.log(`📈 ${difficulty} pool: ${currentCount} → ${this.questionPools[difficulty].length} (+${newQuestions.length})`);
+        } else {
+            console.log(`⚠️ No new ${difficulty} questions obtained from APIs`);
+        }
     }
 
-    addQuestionsFromPool(quizQuestions, pool, usedQuestions, needed, difficultyLabel) {
+    // Main method to load questions (now instant!)
+    async loadQuestions(avoidQuestions = new Set(), targetCount = 13) {
+        try {
+            console.log(`⚡ Loading ${targetCount} questions instantly from pools...`);
+            
+            // Load pools from Redis if empty
+            if (this.questionPools.easy.length === 0) {
+                await this.loadPoolsFromRedis();
+            }
+            
+            // Get questions from pools instantly
+            const questions = this.getQuestionsFromPools(avoidQuestions, targetCount);
+            
+            console.log(`✅ Instantly loaded ${questions.length} questions!`);
+            this.logDifficultyStats(questions);
+            
+            // Trigger background replenishment if pools are getting low
+            setTimeout(() => this.checkAndReplenishPools(), 1000);
+            
+            return questions;
+            
+        } catch (error) {
+            console.error('❌ Error loading questions from pools:', error);
+            return this.getEmergencyFallbackQuestions(targetCount);
+        }
+    }
+
+    // Get questions from pools with proper distribution
+    getQuestionsFromPools(avoidQuestions, targetCount) {
+        const questions = [];
+        const usedQuestions = new Set();
+        
+        // Calculate distribution (2 easy, 4 medium, 4 hard, rest mixed)
+        const distribution = {
+            easy: Math.min(2, targetCount),
+            medium: Math.min(4, Math.max(0, targetCount - 2)),
+            hard: Math.min(4, Math.max(0, targetCount - 6)),
+            extra: Math.max(0, targetCount - 10)
+        };
+        
+        // Add easy questions
+        this.addQuestionsFromPool(
+            questions, 
+            this.questionPools.easy.filter(q => 
+                !avoidQuestions.has(q.question.toLowerCase().trim()) && 
+                !usedQuestions.has(q.question.toLowerCase().trim())
+            ), 
+            usedQuestions, 
+            distribution.easy, 
+            'Easy'
+        );
+        
+        // Add medium questions
+        this.addQuestionsFromPool(
+            questions, 
+            this.questionPools.medium.filter(q => 
+                !avoidQuestions.has(q.question.toLowerCase().trim()) && 
+                !usedQuestions.has(q.question.toLowerCase().trim())
+            ), 
+            usedQuestions, 
+            distribution.medium, 
+            'Medium'
+        );
+        
+        // Add hard questions
+        this.addQuestionsFromPool(
+            questions, 
+            this.questionPools.hard.filter(q => 
+                !avoidQuestions.has(q.question.toLowerCase().trim()) && 
+                !usedQuestions.has(q.question.toLowerCase().trim())
+            ), 
+            usedQuestions, 
+            distribution.hard, 
+            'Hard'
+        );
+        
+        // Add extra questions from any pool
+        if (distribution.extra > 0) {
+            const allAvailable = [
+                ...this.questionPools.easy,
+                ...this.questionPools.medium,
+                ...this.questionPools.hard
+            ].filter(q => 
+                !avoidQuestions.has(q.question.toLowerCase().trim()) && 
+                !usedQuestions.has(q.question.toLowerCase().trim())
+            );
+            
+            this.shuffleArray(allAvailable);
+            this.addQuestionsFromPool(questions, allAvailable, usedQuestions, distribution.extra, 'Extra');
+        }
+        
+        return questions;
+    }
+
+    // Add questions from a specific pool
+    addQuestionsFromPool(questionsList, pool, usedQuestions, needed, difficultyLabel) {
         let added = 0;
         
         for (const question of pool) {
@@ -207,7 +427,7 @@ class QuestionLoader {
             const questionKey = question.question.toLowerCase().trim();
             
             if (!usedQuestions.has(questionKey)) {
-                quizQuestions.push(question);
+                questionsList.push(question);
                 usedQuestions.add(questionKey);
                 added++;
             }
@@ -220,127 +440,56 @@ class QuestionLoader {
         return added;
     }
 
-    buildFallbackQuestionsWithProgression(avoidQuestions, targetCount) {
-        console.log('🛡️ Building fallback questions with difficulty progression...');
-        
-        const fallbacks = this.getFallbackQuestionsByDifficulty(avoidQuestions, new Set());
-        const quizQuestions = [];
-        const usedQuestions = new Set();
-        
-        this.addQuestionsFromPool(quizQuestions, fallbacks.easy, usedQuestions, 2, 'Easy (Fallback)');
-        this.addQuestionsFromPool(quizQuestions, fallbacks.medium, usedQuestions, 4, 'Medium (Fallback)');
-        this.addQuestionsFromPool(quizQuestions, fallbacks.hard, usedQuestions, 4, 'Hard (Fallback)');
-        
-        const allRemaining = [
-            ...fallbacks.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-            ...fallbacks.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-            ...fallbacks.hard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
-        ];
-        this.shuffleArray(allRemaining);
-        this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, targetCount - quizQuestions.length, 'Extra (Fallback)');
-        
-        return quizQuestions;
+    // Start global request queue processor
+    startQueueProcessor() {
+        setInterval(async () => {
+            if (this.requestQueue.length > 0 && !this.isProcessingQueue) {
+                this.isProcessingQueue = true;
+                
+                const { resolve, reject, apiConfig, avoidQuestions, attemptNumber } = this.requestQueue.shift();
+                
+                try {
+                    // Ensure global delay between requests
+                    const now = Date.now();
+                    const timeSinceLastRequest = now - this.globalLastRequest;
+                    
+                    if (timeSinceLastRequest < this.globalMinDelay) {
+                        const waitTime = this.globalMinDelay - timeSinceLastRequest;
+                        console.log(`⏳ Global rate limiting: waiting ${waitTime}ms`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                    }
+                    
+                    const questions = await this.fetchFromSingleAPIDirectly(apiConfig, avoidQuestions, attemptNumber);
+                    this.globalLastRequest = Date.now();
+                    resolve(questions);
+                    
+                } catch (error) {
+                    reject(error);
+                } finally {
+                    this.isProcessingQueue = false;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        }, 500);
     }
 
-    getFallbackQuestionsByDifficulty(avoidQuestions, usedQuestions) {
-        const fallbacks = {
-            easy: [...FALLBACK_QUESTIONS.Easy],
-            medium: [...FALLBACK_QUESTIONS.Medium],
-            hard: [...FALLBACK_QUESTIONS.Hard]
-        };
-        
-        Object.keys(fallbacks).forEach(difficulty => {
-            fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
-                const questionKey = question.question.toLowerCase().trim();
-                return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
+    // Queue API requests to avoid rate limits
+    async fetchFromSingleAPIWithRetry(apiConfig, avoidQuestions, attemptNumber) {
+        return new Promise((resolve, reject) => {
+            this.requestQueue.push({
+                resolve,
+                reject,
+                apiConfig,
+                avoidQuestions,
+                attemptNumber
             });
             
-            this.shuffleArray(fallbacks[difficulty]);
+            console.log(`📋 Queued ${apiConfig.name} (position: ${this.requestQueue.length})`);
         });
-        
-        console.log(`📚 Fallback Questions: Easy: ${fallbacks.easy.length}, Medium: ${fallbacks.medium.length}, Hard: ${fallbacks.hard.length}`);
-        
-        return fallbacks;
     }
 
-    logDifficultyStats(questions) {
-        console.log('\n🎯 Final Quiz Difficulty Progression:');
-        
-        questions.forEach((question, index) => {
-            const questionNum = (index + 1).toString().padStart(2, '0');
-            const difficulty = (question.difficulty || 'Medium').padEnd(6);
-            const source = (question.source || 'Fallback').padEnd(10);
-            
-            let expectedDifficulty = 'Mixed';
-            if (index < 2) expectedDifficulty = 'Easy';
-            else if (index < 6) expectedDifficulty = 'Medium';
-            else if (index < 10) expectedDifficulty = 'Hard';
-            
-            const status = expectedDifficulty === 'Mixed' ? '🔄' : 
-                         (question.difficulty || 'Medium').toLowerCase() === expectedDifficulty.toLowerCase() ? '✅' : '⚠️';
-            
-            console.log(`Q${questionNum}: ${status} ${difficulty} | ${source} | ${question.question.substring(0, 50)}...`);
-        });
-        
-        console.log('');
-    }
-
-    async fetchFromAllAPIs(avoidQuestions) {
-        const allQuestions = [];
-        let successfulCalls = 0;
-        let totalAttempts = 0;
-        
-        console.log(`🚀 Starting optimized API fetching strategy...`);
-        
-        // Sort APIs by priority
-        const sortedApis = this.apiEndpoints.sort((a, b) => a.priority - b.priority);
-        
-        // Try each API with proper spacing and retries
-        for (const apiConfig of sortedApis) {
-            totalAttempts++;
-            
-            try {
-                // Enforce minimum delay between API calls
-                await this.enforceRateLimit(apiConfig.name);
-                
-                console.log(`📡 Attempting ${apiConfig.name} (Priority ${apiConfig.priority})...`);
-                
-                const questions = await this.fetchFromSingleAPIWithRetry(apiConfig, avoidQuestions, totalAttempts);
-                
-                if (questions.length > 0) {
-                    console.log(`✅ ${apiConfig.name}: ${questions.length} valid questions retrieved`);
-                    allQuestions.push(...questions);
-                    successfulCalls++;
-                    
-                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay));
-                } else {
-                    console.log(`⚠️ ${apiConfig.name}: No valid questions found`);
-                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay * 1.5));
-                }
-                
-                // Stop early if we have enough questions
-                if (allQuestions.length >= 20) {
-                    console.log(`🎯 Early stop: Got ${allQuestions.length} questions (target met)`);
-                    break;
-                }
-                
-            } catch (error) {
-                console.warn(`❌ ${apiConfig.name} failed after retries: ${error.message}`);
-                await new Promise(resolve => setTimeout(resolve, apiConfig.delay * 2));
-            }
-        }
-        
-        console.log(`📊 API Fetch Summary: ${successfulCalls}/${totalAttempts} successful calls, ${allQuestions.length} total questions`);
-        
-        // Update session stats
-        this.sessionStats.totalCalls = totalAttempts;
-        this.sessionStats.successfulCalls = successfulCalls;
-        
-        this.shuffleArray(allQuestions);
-        return allQuestions;
-    }
-
-    async fetchFromSingleAPIWithRetry(apiConfig, avoidQuestions, attemptNumber) {
+    // Direct API execution with retries
+    async fetchFromSingleAPIDirectly(apiConfig, avoidQuestions, attemptNumber) {
         let lastError;
         
         for (let retry = 0; retry < apiConfig.maxRetries; retry++) {
@@ -352,12 +501,12 @@ class QuestionLoader {
                 lastError = error;
                 
                 if (error.message.includes('429') || error.message.includes('rate')) {
-                    console.warn(`⚠️ Rate limited on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
-                    const backoffDelay = Math.min(apiConfig.delay * Math.pow(2, retry), 10000);
+                    const backoffDelay = Math.min(apiConfig.delay * Math.pow(3, retry), 20000);
+                    console.warn(`⚠️ Rate limited on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}, waiting ${backoffDelay}ms`);
                     await new Promise(resolve => setTimeout(resolve, backoffDelay));
                 } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503') || error.message.includes('timeout')) {
-                    console.warn(`⚠️ Server/timeout error on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
-                    const backoffDelay = Math.min(apiConfig.delay * (retry + 2), 8000);
+                    const backoffDelay = Math.min(apiConfig.delay * (retry + 3), 15000);
+                    console.warn(`⚠️ Server error on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}, waiting ${backoffDelay}ms`);
                     await new Promise(resolve => setTimeout(resolve, backoffDelay));
                 } else {
                     console.warn(`⚠️ ${apiConfig.name} error (no retry): ${error.message}`);
@@ -369,32 +518,19 @@ class QuestionLoader {
         throw lastError || new Error(`Failed after ${apiConfig.maxRetries} retries`);
     }
 
-    async enforceRateLimit(apiName) {
-        const now = Date.now();
-        const lastCall = this.lastApiCall.get(apiName) || 0;
-        const timeSinceLastCall = now - lastCall;
-        
-        if (timeSinceLastCall < this.minDelayBetweenCalls) {
-            const waitTime = this.minDelayBetweenCalls - timeSinceLastCall;
-            console.log(`⏳ Rate limiting: waiting ${waitTime}ms for ${apiName}`);
-            await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
-        
-        this.lastApiCall.set(apiName, Date.now());
-    }
-
+    // Fetch from single API
     async fetchFromSingleAPI(apiUrl, avoidQuestions, apiNumber, apiName = null) {
         try {
             const displayName = apiName || this.getAPIName(apiUrl);
             
             const controller = new AbortController();
-            const timeoutMs = 15000; // Increased timeout
+            const timeoutMs = 20000;
             const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
             
             const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; AnimeQuizBot/1.0)',
+                    'User-Agent': 'Mozilla/5.0 (compatible; AnimeQuizBot/2.0)',
                     'Accept': 'application/json',
                     'Cache-Control': 'no-cache',
                     'Accept-Encoding': 'gzip, deflate'
@@ -409,8 +545,6 @@ class QuestionLoader {
                     throw new Error(`429 Rate Limited`);
                 } else if (response.status >= 500) {
                     throw new Error(`${response.status} Server Error`);
-                } else if (response.status === 404) {
-                    throw new Error(`404 Not Found - API endpoint may have changed`);
                 } else {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
@@ -424,12 +558,7 @@ class QuestionLoader {
                 return [];
             }
             
-            // Filter and validate questions
             const validQuestions = questions.filter(q => this.isValidQuestion(q, avoidQuestions));
-            
-            // Update session stats
-            this.sessionStats.totalQuestions += questions.length;
-            this.sessionStats.validQuestions += validQuestions.length;
             
             console.log(`📊 ${displayName}: ${validQuestions.length}/${questions.length} questions passed validation`);
             return validQuestions;
@@ -442,6 +571,7 @@ class QuestionLoader {
         }
     }
 
+    // Parse API responses
     parseAPIResponse(data, apiUrl, apiNumber) {
         const questions = [];
         
@@ -449,13 +579,6 @@ class QuestionLoader {
             if (apiUrl.includes('opentdb.com')) {
                 if (data.response_code !== 0) {
                     console.warn(`⚠️ OpenTDB API returned code ${data.response_code}`);
-                    if (data.response_code === 1) {
-                        console.warn(`⚠️ OpenTDB: No results found for this query`);
-                    } else if (data.response_code === 2) {
-                        console.warn(`⚠️ OpenTDB: Invalid parameter`);
-                    } else if (data.response_code === 5) {
-                        console.warn(`⚠️ OpenTDB: Rate limit exceeded`);
-                    }
                     return [];
                 }
                 
@@ -498,8 +621,6 @@ class QuestionLoader {
                 }
             }
             
-            console.log(`📝 Parsed ${questions.length} valid questions from API response`);
-            
         } catch (error) {
             console.error(`❌ Error parsing API response:`, error);
         }
@@ -507,130 +628,64 @@ class QuestionLoader {
         return questions;
     }
 
+    // Enhanced question validation
     isValidQuestion(question, avoidQuestions) {
         try {
-            // Basic validation
-            if (!question.question || !question.answer) {
-                return false;
-            }
-            
-            if (!question.options || question.options.length < 2) {
-                return false;
-            }
-            
-            if (!question.options.includes(question.answer)) {
-                return false;
-            }
+            if (!question.question || !question.answer || !question.options) return false;
+            if (question.options.length < 2) return false;
+            if (!question.options.includes(question.answer)) return false;
             
             const questionLower = question.question.toLowerCase();
             const questionKey = questionLower.trim();
             
-            if (avoidQuestions.has(questionKey)) {
-                return false;
-            }
-            
-            if (question.question.length > 300) {
-                return false;
-            }
-            
-            const hasLongOptions = question.options.some(opt => opt.length > 120);
-            if (hasLongOptions) {
-                return false;
-            }
-
-            // Check for invalid characters or encoding issues
-            if (questionLower.includes('�') || questionLower.includes('&amp;')) {
-                return false;
-            }
-            
-            // ==================== IMPROVED ANIME DETECTION ====================
+            if (avoidQuestions.has && avoidQuestions.has(questionKey)) return false;
+            if (question.question.length > 300) return false;
+            if (question.options.some(opt => opt.length > 120)) return false;
+            if (questionLower.includes('�') || questionLower.includes('&amp;')) return false;
             
             // Strong anime indicators
-            const strongAnimeIndicators = [
+            const strongIndicators = [
                 'anime', 'manga', 'otaku', 'japanese animation',
                 'devil fruit', 'chakra', 'jutsu', 'quirk', 'stand', 'titan',
                 'soul reaper', 'hollow', 'bankai', 'shikai', 'zanpakuto',
                 'hokage', 'shinobi', 'ninja village', 'pirate king',
-                'tsundere', 'yandere', 'kuudere', 'dandere', 'waifu', 'husbando',
-                'senpai', 'kouhai', 'sensei', 'chan', 'kun', 'sama',
+                'tsundere', 'yandere', 'senpai', 'kouhai', 'sensei',
                 'dragon ball', 'one piece', 'naruto', 'bleach', 'attack on titan',
                 'my hero academia', 'death note', 'fullmetal alchemist',
                 'studio ghibli', 'miyazaki', 'mecha', 'gundam'
             ];
-
-            const hasStrongIndicators = strongAnimeIndicators.some(indicator => 
+            
+            const hasStrongIndicators = strongIndicators.some(indicator => 
                 questionLower.includes(indicator.toLowerCase())
             );
-
-            // Anime titles check (expanded)
+            
             const hasAnimeTitles = ANIME_TITLES.some(title => 
                 questionLower.includes(title.toLowerCase())
             );
-
-            // Question pattern check (improved)
+            
             const hasAnimePattern = [
                 'which.*anime', 'in.*anime', 'anime.*series', 'manga.*series',
-                'which.*character', 'protagonist.*of', 'main.*character',
-                'voice actor', 'voice actress', 'voiced by'
+                'which.*character', 'protagonist.*of', 'main.*character'
             ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
-
-            // Answer options contain anime content (expanded check)
+            
             const answersHaveAnime = question.options.some(option => {
                 const optionLower = option.toLowerCase();
                 return ANIME_TITLES.some(title => optionLower.includes(title.toLowerCase())) ||
-                       [
-                           'luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward',
-                           'light yagami', 'monkey d', 'uchiha', 'uzumaki',
-                           'elric', 'kurosaki', 'dragneel', 'midoriya', 'todoroki',
-                           'bakugo', 'aizawa', 'allmight', 'deku'
-                       ].some(name => optionLower.includes(name));
+                       ['luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward', 'light yagami', 'monkey d', 'uchiha', 'uzumaki'].some(name => optionLower.includes(name));
             });
-
-            // ==================== STRICT REJECTION FILTERS ====================
             
+            // Reject non-anime content
             const nonAnimeContent = [
-                'call of duty', 'minecraft', 'fortnite', 'overwatch', 'league of legends',
-                'xbox', 'playstation', 'nintendo switch', 'pc game', 'steam',
-                'hollywood', 'netflix', 'disney', 'marvel', 'dc comics',
-                'billboard', 'grammy', 'album chart', 'music producer',
-                'tv show', 'television', 'live action', 'sitcom',
-                'american', 'british', 'european', 'western animation'
+                'call of duty', 'minecraft', 'fortnite', 'overwatch',
+                'xbox', 'playstation', 'pc game', 'hollywood', 'netflix', 'disney'
             ].some(keyword => questionLower.includes(keyword.toLowerCase()));
-
-            if (nonAnimeContent) {
-                console.log(`❌ Rejecting non-anime content: ${question.question.substring(0, 60)}...`);
-                return false;
-            }
-
-            // Reject questions with too many numbers (likely statistics)
-            const numberCount = (question.question.match(/\d+/g) || []).length;
-            if (numberCount > 3) {
-                console.log(`❌ Rejecting question with too many numbers: ${question.question.substring(0, 60)}...`);
-                return false;
-            }
-
-            // ==================== DECISION LOGIC ====================
             
-            // Accept if has strong anime indicators
-            if (hasStrongIndicators || hasAnimeTitles) {
-                console.log(`✅ Accepting anime question (strong): ${question.question.substring(0, 60)}...`);
-                return true;
-            }
-
-            // Accept if has anime pattern and trusted source
-            if (hasAnimePattern && (question.source === 'OpenTDB' || question.source === 'TriviaAPI')) {
-                console.log(`✅ Accepting anime question (pattern + trusted): ${question.question.substring(0, 60)}...`);
-                return true;
-            }
-
-            // Accept if answers contain anime content and from anime category
-            if (answersHaveAnime && (questionLower.includes('character') || questionLower.includes('series'))) {
-                console.log(`✅ Accepting anime question (answers + context): ${question.question.substring(0, 60)}...`);
-                return true;
-            }
-
-            console.log(`❌ Rejecting question (insufficient anime content): ${question.question.substring(0, 60)}...`);
-            return false;
+            if (nonAnimeContent) return false;
+            
+            const numberCount = (question.question.match(/\d+/g) || []).length;
+            if (numberCount > 3) return false;
+            
+            return hasStrongIndicators || hasAnimeTitles || hasAnimePattern || answersHaveAnime;
             
         } catch (error) {
             console.error('❌ Error validating question:', error);
@@ -638,52 +693,39 @@ class QuestionLoader {
         }
     }
 
-    getFallbackQuestions(avoidQuestions, usedQuestions, targetCount = 13) {
-        const easyQuestions = [...FALLBACK_QUESTIONS.Easy];
-        const mediumQuestions = [...FALLBACK_QUESTIONS.Medium];
-        const hardQuestions = [...FALLBACK_QUESTIONS.Hard];
+    // Emergency fallback questions
+    getEmergencyFallbackQuestions(targetCount = 13) {
+        console.log('🚨 Using emergency fallback questions...');
         
-        this.shuffleArray(easyQuestions);
-        this.shuffleArray(mediumQuestions);
-        this.shuffleArray(hardQuestions);
-        
-        const easyCount = Math.min(6, Math.ceil(targetCount * 0.3));
-        const mediumCount = Math.min(6, Math.ceil(targetCount * 0.4));
-        const hardCount = targetCount - easyCount - mediumCount;
-        
-        const balancedQuestions = [
-            ...easyQuestions.slice(0, easyCount),
-            ...mediumQuestions.slice(0, mediumCount),
-            ...hardQuestions.slice(0, Math.max(hardCount, 0))
+        const emergency = [
+            { question: "Who is the main protagonist of One Piece?", options: ["Monkey D. Luffy", "Roronoa Zoro", "Nami", "Sanji"], answer: "Monkey D. Luffy", difficulty: "Easy" },
+            { question: "What is Naruto's favorite food?", options: ["Ramen", "Sushi", "Rice balls", "Tempura"], answer: "Ramen", difficulty: "Easy" },
+            { question: "In Dragon Ball, how many Dragon Balls are there?", options: ["7", "5", "9", "12"], answer: "7", difficulty: "Easy" },
+            { question: "What is the name of Light's notebook in Death Note?", options: ["Death Note", "Kill Book", "Murder Diary", "Dark Journal"], answer: "Death Note", difficulty: "Medium" },
+            { question: "In Attack on Titan, what are the giant creatures called?", options: ["Titans", "Giants", "Colossi", "Monsters"], answer: "Titans", difficulty: "Medium" },
+            { question: "What is Luffy's Devil Fruit power?", options: ["Rubber abilities", "Fire powers", "Ice powers", "Lightning"], answer: "Rubber abilities", difficulty: "Medium" },
+            { question: "In Fullmetal Alchemist, what is the first law of equivalent exchange?", options: ["To obtain something, something of equal value must be lost", "Energy cannot be destroyed", "Matter cannot be created", "All is one"], answer: "To obtain something, something of equal value must be lost", difficulty: "Hard" },
+            { question: "What is the name of Ichigo's sword in Bleach?", options: ["Zangetsu", "Senbonzakura", "Hyorinmaru", "Zabimaru"], answer: "Zangetsu", difficulty: "Hard" },
+            { question: "In One Piece, what is Nico Robin's Devil Fruit called?", options: ["Hana Hana no Mi", "Gomu Gomu no Mi", "Mera Mera no Mi", "Yami Yami no Mi"], answer: "Hana Hana no Mi", difficulty: "Hard" },
+            { question: "What village is Naruto from?", options: ["Hidden Leaf Village", "Hidden Sand Village", "Hidden Mist Village", "Hidden Cloud Village"], answer: "Hidden Leaf Village", difficulty: "Easy" },
+            { question: "In My Hero Academia, what is Deku's real name?", options: ["Izuku Midoriya", "Katsuki Bakugo", "Shoto Todoroki", "Tenya Iida"], answer: "Izuku Midoriya", difficulty: "Medium" },
+            { question: "What type of Pokemon is Pikachu?", options: ["Electric", "Fire", "Water", "Grass"], answer: "Electric", difficulty: "Easy" },
+            { question: "In JoJo's Bizarre Adventure, what are Stands?", options: ["Supernatural abilities", "Weapons", "Locations", "Organizations"], answer: "Supernatural abilities", difficulty: "Hard" }
         ];
+
+        this.shuffleArray(emergency);
         
-        const availableFallbacks = balancedQuestions.filter(question => {
-            const questionKey = question.question.toLowerCase().trim();
-            return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
-        });
-        
-        if (availableFallbacks.length < targetCount) {
-            const allFallbacks = [...easyQuestions, ...mediumQuestions, ...hardQuestions];
-            this.shuffleArray(allFallbacks);
-            
-            for (const question of allFallbacks) {
-                if (availableFallbacks.length >= targetCount) break;
-                
-                const questionKey = question.question.toLowerCase().trim();
-                const isAlreadyIncluded = availableFallbacks.some(q => 
-                    q.question.toLowerCase().trim() === questionKey
-                );
-                
-                if (!isAlreadyIncluded) {
-                    availableFallbacks.push(question);
-                }
-            }
+        while (emergency.length < targetCount) {
+            const additional = [...emergency];
+            this.shuffleArray(additional);
+            emergency.push(...additional.slice(0, targetCount - emergency.length));
         }
-        
-        this.shuffleArray(availableFallbacks);
-        return availableFallbacks.slice(0, targetCount);
+
+        console.log(`🛡️ Emergency fallback provided ${Math.min(targetCount, emergency.length)} questions`);
+        return emergency.slice(0, targetCount);
     }
 
+    // Utility methods
     cleanText(text) {
         if (!text) return '';
         
@@ -730,195 +772,62 @@ class QuestionLoader {
         return 'Unknown';
     }
 
-    logAPIStats(questions) {
-        const stats = {
-            total: questions.length,
-            bySource: {}
-        };
+    logDifficultyStats(questions) {
+        console.log('\n🎯 Quiz Question Distribution:');
         
-        questions.forEach(q => {
-            const source = q.source || 'Unknown';
-            stats.bySource[source] = (stats.bySource[source] || 0) + 1;
+        questions.forEach((question, index) => {
+            const questionNum = (index + 1).toString().padStart(2, '0');
+            const difficulty = (question.difficulty || 'Medium').padEnd(6);
+            const source = (question.source || 'Pool').padEnd(8);
+            
+            let expectedDifficulty = 'Mixed';
+            if (index < 2) expectedDifficulty = 'Easy';
+            else if (index < 6) expectedDifficulty = 'Medium';
+            else if (index < 10) expectedDifficulty = 'Hard';
+            
+            const status = expectedDifficulty === 'Mixed' ? '🔄' : 
+                         (question.difficulty || 'Medium').toLowerCase() === expectedDifficulty.toLowerCase() ? '✅' : '⚠️';
+            
+            console.log(`Q${questionNum}: ${status} ${difficulty} | ${source} | ${question.question.substring(0, 50)}...`);
         });
         
-        console.log('\n📊 API Statistics:');
-        console.log(`Total Questions: ${stats.total}`);
-        Object.entries(stats.bySource).forEach(([source, count]) => {
-            console.log(`  ${source}: ${count} questions`);
-        });
         console.log('');
     }
 
-    getQuestionStats(questions) {
-        const stats = {
-            total: questions.length,
-            byDifficulty: {
-                easy: 0,
-                medium: 0,
-                hard: 0
+    // Pool status methods
+    getPoolStatus() {
+        return {
+            easy: {
+                current: this.questionPools.easy.length,
+                target: this.questionPoolTargets.easy,
+                minimum: this.questionPoolMinimums.easy,
+                status: this.questionPools.easy.length >= this.questionPoolMinimums.easy ? 'healthy' : 'low'
             },
-            bySource: {
-                api: 0,
-                fallback: 0
-            }
+            medium: {
+                current: this.questionPools.medium.length,
+                target: this.questionPoolTargets.medium,
+                minimum: this.questionPoolMinimums.medium,
+                status: this.questionPools.medium.length >= this.questionPoolMinimums.medium ? 'healthy' : 'low'
+            },
+            hard: {
+                current: this.questionPools.hard.length,
+                target: this.questionPoolTargets.hard,
+                minimum: this.questionPoolMinimums.hard,
+                status: this.questionPools.hard.length >= this.questionPoolMinimums.hard ? 'healthy' : 'low'
+            },
+            isGenerating: this.isGeneratingPools,
+            queueLength: this.requestQueue.length
         };
-        
-        questions.forEach(q => {
-            const difficulty = (q.difficulty || 'medium').toLowerCase();
-            if (stats.byDifficulty[difficulty] !== undefined) {
-                stats.byDifficulty[difficulty]++;
-            }
-            
-            if (q.source) {
-                stats.bySource.api++;
-            } else {
-                stats.bySource.fallback++;
-            }
-        });
-        
-        return stats;
     }
 
-    // Emergency fallback method - guarantees questions even if all else fails
-    getEmergencyFallbackQuestions(targetCount = 13) {
-        console.log('🚨 Using emergency fallback questions...');
-        
-        const emergencyQuestions = [
-            {
-                question: "Who is the main protagonist of One Piece?",
-                options: ["Monkey D. Luffy", "Roronoa Zoro", "Nami", "Sanji"],
-                answer: "Monkey D. Luffy",
-                difficulty: "Easy"
-            },
-            {
-                question: "What is Naruto's favorite food?",
-                options: ["Ramen", "Sushi", "Rice balls", "Tempura"],
-                answer: "Ramen",
-                difficulty: "Easy"
-            },
-            {
-                question: "In Dragon Ball, how many Dragon Balls are there?",
-                options: ["7", "5", "9", "12"],
-                answer: "7",
-                difficulty: "Easy"
-            },
-            {
-                question: "What is the name of Light's notebook in Death Note?",
-                options: ["Death Note", "Kill Book", "Murder Diary", "Dark Journal"],
-                answer: "Death Note",
-                difficulty: "Medium"
-            },
-            {
-                question: "In Attack on Titan, what are the giant creatures called?",
-                options: ["Titans", "Giants", "Colossi", "Monsters"],
-                answer: "Titans",
-                difficulty: "Medium"
-            },
-            {
-                question: "What is Luffy's Devil Fruit power?",
-                options: ["Rubber abilities", "Fire powers", "Ice powers", "Lightning"],
-                answer: "Rubber abilities",
-                difficulty: "Medium"
-            },
-            {
-                question: "In Fullmetal Alchemist, what is the first law of equivalent exchange?",
-                options: ["To obtain something, something of equal value must be lost", "Energy cannot be destroyed", "Matter cannot be created", "All is one"],
-                answer: "To obtain something, something of equal value must be lost",
-                difficulty: "Hard"
-            },
-            {
-                question: "What is the name of Ichigo's sword in Bleach?",
-                options: ["Zangetsu", "Senbonzakura", "Hyorinmaru", "Zabimaru"],
-                answer: "Zangetsu",
-                difficulty: "Hard"
-            },
-            {
-                question: "In One Piece, what is Nico Robin's Devil Fruit called?",
-                options: ["Hana Hana no Mi", "Gomu Gomu no Mi", "Mera Mera no Mi", "Yami Yami no Mi"],
-                answer: "Hana Hana no Mi",
-                difficulty: "Hard"
-            },
-            {
-                question: "What village is Naruto from?",
-                options: ["Hidden Leaf Village", "Hidden Sand Village", "Hidden Mist Village", "Hidden Cloud Village"],
-                answer: "Hidden Leaf Village",
-                difficulty: "Easy"
-            },
-            {
-                question: "In My Hero Academia, what is Deku's real name?",
-                options: ["Izuku Midoriya", "Katsuki Bakugo", "Shoto Todoroki", "Tenya Iida"],
-                answer: "Izuku Midoriya",
-                difficulty: "Medium"
-            },
-            {
-                question: "What type of Pokemon is Pikachu?",
-                options: ["Electric", "Fire", "Water", "Grass"],
-                answer: "Electric",
-                difficulty: "Easy"
-            },
-            {
-                question: "In JoJo's Bizarre Adventure, what are Stands?",
-                options: ["Supernatural abilities", "Weapons", "Locations", "Organizations"],
-                answer: "Supernatural abilities",
-                difficulty: "Hard"
-            }
-        ];
-
-        this.shuffleArray(emergencyQuestions);
-        
-        // Ensure we have enough questions by duplicating if necessary
-        while (emergencyQuestions.length < targetCount) {
-            const additionalQuestions = [...emergencyQuestions];
-            this.shuffleArray(additionalQuestions);
-            emergencyQuestions.push(...additionalQuestions.slice(0, targetCount - emergencyQuestions.length));
-        }
-
-        console.log(`🛡️ Emergency fallback provided ${Math.min(targetCount, emergencyQuestions.length)} questions`);
-        return emergencyQuestions.slice(0, targetCount);
-    }
-
-    // Method to validate and fix question data
-    validateAndFixQuestion(question) {
-        if (!question || typeof question !== 'object') {
-            return null;
-        }
-
-        // Ensure required fields exist
-        if (!question.question || !question.answer || !question.options) {
-            return null;
-        }
-
-        // Clean and validate question text
-        question.question = this.cleanText(question.question);
-        question.answer = this.cleanText(question.answer);
-        
-        if (!question.question || question.question.length < 10) {
-            return null;
-        }
-
-        // Clean and validate options
-        question.options = question.options.map(opt => this.cleanText(opt)).filter(opt => opt && opt.length > 0);
-        
-        if (question.options.length < 2) {
-            return null;
-        }
-
-        // Ensure answer is in options
-        if (!question.options.includes(question.answer)) {
-            question.options.push(question.answer);
-        }
-
-        // Ensure we have at least 4 options
-        while (question.options.length < 4) {
-            question.options.push(`Option ${question.options.length + 1}`);
-        }
-
-        // Set default difficulty if missing
-        if (!question.difficulty) {
-            question.difficulty = 'Medium';
-        }
-
-        return question;
+    logPoolStatus() {
+        const status = this.getPoolStatus();
+        console.log('\n🏊 Question Pool Status:');
+        console.log(`Easy:   ${status.easy.current}/${status.easy.target} ${status.easy.status === 'healthy' ? '✅' : '⚠️'}`);
+        console.log(`Medium: ${status.medium.current}/${status.medium.target} ${status.medium.status === 'healthy' ? '✅' : '⚠️'}`);
+        console.log(`Hard:   ${status.hard.current}/${status.hard.target} ${status.hard.status === 'healthy' ? '✅' : '⚠️'}`);
+        console.log(`Queue:  ${status.queueLength} requests pending`);
+        console.log(`Status: ${status.isGenerating ? 'Generating 🏭' : 'Ready ⚡'}\n`);
     }
 
     // Health check for APIs
@@ -933,7 +842,7 @@ class QuestionLoader {
                 const timeoutId = setTimeout(() => controller.abort(), 5000);
                 
                 const response = await fetch(apiConfig.url, {
-                    method: 'HEAD', // Use HEAD request for health check
+                    method: 'HEAD',
                     signal: controller.signal
                 });
                 
@@ -942,7 +851,7 @@ class QuestionLoader {
                 healthResults[apiConfig.name] = {
                     status: response.ok ? 'healthy' : 'unhealthy',
                     statusCode: response.status,
-                    responseTime: Date.now()
+                    difficulty: apiConfig.difficulty
                 };
                 
                 console.log(`${response.ok ? '✅' : '❌'} ${apiConfig.name}: ${response.status}`);
@@ -950,17 +859,82 @@ class QuestionLoader {
             } catch (error) {
                 healthResults[apiConfig.name] = {
                     status: 'error',
-                    error: error.message
+                    error: error.message,
+                    difficulty: apiConfig.difficulty
                 };
                 
                 console.log(`❌ ${apiConfig.name}: ${error.message}`);
             }
             
-            // Small delay between health checks
             await new Promise(resolve => setTimeout(resolve, 200));
         }
         
         return healthResults;
+    }
+
+    // Force regenerate specific pool
+    async forceRegeneratePool(difficulty) {
+        if (!['easy', 'medium', 'hard'].includes(difficulty)) {
+            throw new Error('Invalid difficulty. Use: easy, medium, hard');
+        }
+        
+        console.log(`🔄 Force regenerating ${difficulty} pool...`);
+        
+        // Clear current pool
+        this.questionPools[difficulty] = [];
+        
+        // Add fallbacks for this difficulty
+        if (difficulty === 'easy') {
+            this.questionPools.easy = [...FALLBACK_QUESTIONS.Easy];
+        } else if (difficulty === 'medium') {
+            this.questionPools.medium = [...FALLBACK_QUESTIONS.Medium];
+        } else if (difficulty === 'hard') {
+            this.questionPools.hard = [...FALLBACK_QUESTIONS.Hard];
+        }
+        
+        // Generate new questions
+        await this.generatePoolQuestions(difficulty);
+        
+        // Save to Redis
+        await this.savePoolsToRedis();
+        
+        console.log(`✅ ${difficulty} pool regenerated: ${this.questionPools[difficulty].length} questions`);
+    }
+
+    // Cleanup method
+    cleanup() {
+        if (this.poolGenerationInterval) {
+            clearInterval(this.poolGenerationInterval);
+            this.poolGenerationInterval = null;
+            console.log('🧹 Pool monitoring stopped');
+        }
+        
+        // Clear request queue
+        this.requestQueue = [];
+        this.isProcessingQueue = false;
+        
+        console.log('🧹 QuestionLoader cleanup completed');
+    }
+
+    // Get statistics
+    getStatistics() {
+        const poolStatus = this.getPoolStatus();
+        const totalQuestions = poolStatus.easy.current + poolStatus.medium.current + poolStatus.hard.current;
+        const totalTarget = poolStatus.easy.target + poolStatus.medium.target + poolStatus.hard.target;
+        
+        return {
+            pools: poolStatus,
+            totals: {
+                current: totalQuestions,
+                target: totalTarget,
+                percentage: Math.round((totalQuestions / totalTarget) * 100)
+            },
+            system: {
+                isGenerating: this.isGeneratingPools,
+                queueLength: this.requestQueue.length,
+                redisConnected: this.redis?.connected || false
+            }
+        };
     }
 }
 
