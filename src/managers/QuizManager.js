@@ -390,12 +390,13 @@ class QuizManager {
                     .setEmoji(buttonEmojis[index])
             );
 
-            // Add reroll button if rerolls available and extra questions exist
+            // Create components - max 5 buttons per row
             const components = [
                 new ActionRowBuilder().addComponents(buttons.slice(0, 2)),
                 new ActionRowBuilder().addComponents(buttons.slice(2, 4))
             ];
 
+            // Add reroll button if rerolls available and extra questions exist
             if (session.rerollsUsed < 3 && session.extraQuestions && session.extraQuestions.length > 0) {
                 const rerollButton = new ButtonBuilder()
                     .setCustomId(`reroll_${session.userId}`)
@@ -403,7 +404,12 @@ class QuizManager {
                     .setStyle(ButtonStyle.Secondary)
                     .setEmoji('🎲');
                 
-                components.push(new ActionRowBuilder().addComponents(rerollButton));
+                // Add reroll button to second row if there's space, otherwise create a third row
+                if (components[1].components.length < 5) {
+                    components[1].addComponents(rerollButton);
+                } else {
+                    components.push(new ActionRowBuilder().addComponents(rerollButton));
+                }
             }
 
             let message;
