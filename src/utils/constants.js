@@ -13,6 +13,21 @@ const TIER_COLORS = {
     10: '#4A2B66'
 };
 
+// Rarity-based colors (more exciting for buffs)
+const TIER_RARITY_COLORS = {
+    0: '#808080',  // No Rarity
+    1: '#FFFFFF',  // Common - White
+    2: '#1EFF00',  // Uncommon - Green
+    3: '#0099FF',  // Rare - Blue
+    4: '#9933FF',  // Epic - Purple
+    5: '#FF6600',  // Legendary - Orange
+    6: '#FF6600',  // Legendary - Orange
+    7: '#FF0040',  // Mythic - Red/Pink
+    8: '#FF0040',  // Mythic - Red/Pink
+    9: '#FFD700',  // Divine - Gold
+    10: '#FFD700' // Divine - Gold
+};
+
 // Tier names (Nico Robin archaeological theme)
 const TIER_NAMES = {
     0: 'No Ancient Knowledge',
@@ -26,6 +41,21 @@ const TIER_NAMES = {
     8: 'Devil Child Wisdom',
     9: 'Ohara\'s Legacy',
     10: 'Ohara\'s Legacy'
+};
+
+// Rarity tiers (gaming-style rarities)
+const TIER_RARITIES = {
+    0: 'No Rarity',
+    1: 'Common',
+    2: 'Uncommon', 
+    3: 'Rare',
+    4: 'Epic',
+    5: 'Legendary',
+    6: 'Legendary',
+    7: 'Mythic',
+    8: 'Mythic',
+    9: 'Divine',
+    10: 'Divine'
 };
 
 // Tier emojis (scholarly and archaeological theme)
@@ -192,7 +222,9 @@ const FALLBACK_QUESTIONS = {
 
 module.exports = {
     TIER_COLORS,
+    TIER_RARITY_COLORS,
     TIER_NAMES,
+    TIER_RARITIES,
     TIER_EMOJIS,
     TIER_DESCRIPTIONS,
     ANIME_KEYWORDS,
