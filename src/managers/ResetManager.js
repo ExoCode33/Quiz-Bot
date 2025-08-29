@@ -147,6 +147,9 @@ class ResetManager {
             let redisCleanup = 0;
             if (this.redis?.connected) {
                 redisCleanup = await this.redis.cleanupExpiredKeys();
+                
+                // Also run Redis optimization
+                await this.redis.optimizeQuestionCache();
             }
             
             // Cleanup old database records
