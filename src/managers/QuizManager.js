@@ -287,40 +287,40 @@ class QuizManager {
             else if (session.score >= 4) embedColor = '#9C27B0';
             else if (session.score >= 2) embedColor = '#2196F3';
             
-            // Create question embed
+            // Create question embed with Nico Robin theme
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
-                .setTitle(`⚔️ Question ${questionNum}/10`)
-                .setDescription(`**${question.question}**`)
+                .setTitle(`📚 Ancient Text ${questionNum}/10`)
+                .setDescription(`**"Let me read this passage for you..."**\n\n${question.question}`)
                 .addFields(
                     {
-                        name: '🗺️ Progress',
+                        name: '🔍 Archaeological Progress',
                         value: this.createProgressBar(session.currentQuestion, session.answers),
                         inline: false
                     },
                     {
-                        name: '⏱️ Time Remaining',
+                        name: '⏳ Research Time Remaining',
                         value: this.createTimeBar(session.timeRemaining),
                         inline: false
                     },
                     {
-                        name: '🏆 Score',
+                        name: '📜 Knowledge Score',
                         value: `${session.score}/${session.currentQuestion + 1}`,
                         inline: true
                     },
                     {
-                        name: '⚡ Difficulty',
+                        name: '🏺 Text Complexity',
                         value: `${this.getDifficultyEmoji(question.difficulty)} ${question.difficulty || 'Medium'}`,
                         inline: true
                     },
                     {
-                        name: '🎯 Current Buff',
-                        value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 None',
+                        name: '🌸 Current Wisdom',
+                        value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No Ancient Knowledge',
                         inline: true
                     }
                 )
                 .setFooter({ 
-                    text: `Choose wisely • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
+                    text: `"Knowledge is power." • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
                 })
                 .setTimestamp();
 
@@ -343,9 +343,9 @@ class QuizManager {
             if (session.rerollsUsed < 3 && session.extraQuestions && session.extraQuestions.length > 0) {
                 const rerollButton = new ButtonBuilder()
                     .setCustomId(`reroll_${session.userId}`)
-                    .setLabel(`Reroll Question (${session.rerollsUsed}/3)`)
+                    .setLabel(`Reread Text (${session.rerollsUsed}/3)`)
                     .setStyle(ButtonStyle.Secondary)
-                    .setEmoji('🎲');
+                    .setEmoji('🌸');
                 
                 components.push(new ActionRowBuilder().addComponents(rerollButton));
             }
@@ -435,39 +435,39 @@ class QuizManager {
                 
                 const embed = new EmbedBuilder()
                     .setColor(embedColor)
-                    .setTitle(`⚔️ Question ${questionNum}/10`)
-                    .setDescription(`**${question.question}**`)
+                    .setTitle(`📚 Ancient Text ${questionNum}/10`)
+                    .setDescription(`**"Let me read this passage for you..."**\n\n${question.question}`)
                     .addFields(
                         {
-                            name: '🗺️ Progress',
+                            name: '🔍 Archaeological Progress',
                             value: this.createProgressBar(session.currentQuestion, session.answers),
                             inline: false
                         },
                         {
-                            name: '⏱️ Time Remaining',
+                            name: '⏳ Research Time Remaining',
                             value: this.createTimeBar(session.timeRemaining),
                             inline: false
                         },
                         {
-                            name: '🏆 Score',
+                            name: '📜 Knowledge Score',
                             value: `${session.score}/${session.currentQuestion + 1}`,
                             inline: true
                         },
                         {
-                            name: '⚡ Difficulty',
+                            name: '🏺 Text Complexity',
                             value: `${this.getDifficultyEmoji(question.difficulty)} ${question.difficulty || 'Medium'}`,
                             inline: true
                         },
                         {
-                            name: '🎯 Current Buff',
-                            value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 None',
+                            name: '🌸 Current Wisdom',
+                            value: session.score > 0 ? `${TIER_EMOJIS[session.score]} ${TIER_NAMES[session.score]}` : '💀 No Ancient Knowledge',
                             inline: true
                         }
                     )
                     .setFooter({ 
                         text: session.timeRemaining <= 6 ? 
-                            '⚠️ Time running out!' : 
-                            `Choose wisely • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
+                            '⚠️ "Time is running out, archaeologist!"' : 
+                            `"Knowledge is power." • ${questionNum}/${process.env.TOTAL_QUESTIONS || 10}`
                     })
                     .setTimestamp();
                 
@@ -572,33 +572,33 @@ class QuizManager {
             
             const embed = new EmbedBuilder()
                 .setColor(isCorrect ? '#00FF00' : '#FF0000')
-                .setTitle('🌊 Continue Quiz?')
-                .setDescription(`**Question ${questionNum} Complete!**\n\n${isCorrect ? '⚔️ **Correct!**' : '💀 **Wrong!**'}\n${isCorrect ? `**${selectedAnswer}**` : `**Your Answer:** ${selectedAnswer}\n**Correct Answer:** ${correctAnswer}`}`)
+                .setTitle('🌸 Continue Your Studies?')
+                .setDescription(`**Ancient Text ${questionNum} Deciphered!**\n\n${isCorrect ? '📚 **"Excellent translation!"**' : '💀 **"Let me correct that for you..."**'}\n${isCorrect ? `**Your Answer:** ${selectedAnswer}` : `**Your Translation:** ${selectedAnswer}\n**Correct Reading:** ${correctAnswer}`}`)
                 .addFields(
                     {
-                        name: '📊 Progress',
-                        value: `**${questionNum}/10** completed • **${session.score}** correct • **${Math.round((session.score / questionNum) * 100)}%** success`,
+                        name: '📊 Research Progress',
+                        value: `**${questionNum}/10** texts studied • **${session.score}** correct translations • **${Math.round((session.score / questionNum) * 100)}%** accuracy`,
                         inline: false
                     },
                     {
-                        name: '🗺️ Journey',
+                        name: '🔍 Archaeological Journey',
                         value: this.createProgressBar(session.currentQuestion + 1, session.answers),
                         inline: false
                     },
                     {
-                        name: '🏆 Current Power',
+                        name: '🏺 Current Ancient Power',
                         value: session.score > 0 ? 
                             `${TIER_EMOJIS[session.score]} **${TIER_NAMES[session.score]}**` : 
-                            '💀 **No Buff Yet**',
+                            '💀 **No Ancient Knowledge Yet**',
                         inline: true
                     },
                     {
-                        name: '⚔️ Remaining',
-                        value: `**${10 - questionNum}** questions left`,
+                        name: '📜 Texts Remaining',
+                        value: `**${10 - questionNum}** ancient texts left to study`,
                         inline: true
                     }
                 )
-                .setFooter({ text: '⚠️ Loading next question...' })
+                .setFooter({ text: '⚠️ "Preparing the next ancient text..."' })
                 .setTimestamp();
 
             await interaction.editReply({ embeds: [embed], components: [] });
