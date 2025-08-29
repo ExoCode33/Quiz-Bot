@@ -1,0 +1,42 @@
+# Discord Bot Configuration
+DISCORD_TOKEN=your_discord_bot_token
+CLIENT_ID=your_discord_application_id
+NODE_ENV=production
+
+# Bot Type Configuration
+BOT_TYPE=quiz
+
+# Database Configuration
+DATABASE_URL=your_postgresql_connection_url
+
+# Redis Configuration (Priority 1 - Optional fallback to PostgreSQL)
+REDIS_DB=1
+REDIS_KEY_PREFIX=Quiz-Bot:
+REDIS_CONNECTION_TIMEOUT=10000
+REDISHOST=your_redis_host
+REDISPORT=6379
+REDIS_PASSWORD=your_redis_password
+
+# Daily Reset Configuration (EDT Timezone)
+DAILY_RESET_HOUR_EDT=0
+DAILY_RESET_MINUTE_EDT=30
+
+# Tier Role Configuration
+TIER_1_ROLE=1407018696379076718
+TIER_2_ROLE=1407018772669399182
+TIER_3_ROLE=1407018794081194096
+TIER_4_ROLE=1407062665171570807
+TIER_5_ROLE=1407062687044604047
+TIER_6_ROLE=1407722561424330753
+TIER_7_ROLE=1407722659516645447
+TIER_8_ROLE=1407722729683161109
+TIER_9_ROLE=1407722765749977232
+TIER_10_ROLE=1407722814005448774
+
+# Quiz Configuration
+QUIZ_CHANNEL_ID=your_quiz_channel_id_optional
+QUESTION_TIME_LIMIT=20
+TOTAL_QUESTIONS=10
+
+# Testing Mode (Optional)
+TESTING_MODE=false
