@@ -3,76 +3,237 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 class QuestionLoader {
     constructor() {
         this.apiEndpoints = [
-            'https://opentdb.com/api.php?amount=8&category=31&type=multiple', // Increased from 5 to 8
-            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8' // Increased from 5 to 8
+            // Existing APIs (increased amounts)
+            'https://opentdb.com/api.php?amount=10&category=31&type=multiple',
+            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=10',
+            
+            // New Anime-Specific APIs
+            'https://aniquizapi.vercel.app/api/random', // AniQuizAPI - random questions
+            'https://beta-trivia.bongobot.io/?category=Entertainment: Japanese Anime & Manga&limit=8',
+            
+            // Backup API with anime filtering
+            'https://api.api-ninjas.com/v1/trivia?category=science&limit=5' // Will be filtered for anime content
         ];
     }
 
     async loadQuestions(avoidQuestions = new Set(), targetCount = 13) {
         try {
-            console.log(`🔄 Loading ${targetCount} anime quiz questions...`);
+            console.log(`🔄 Loading ${targetCount} anime quiz questions with difficulty progression...`);
             
-            const questions = [];
+            // Load questions from APIs first
+            const apiQuestions = await this.fetchFromAllAPIs(avoidQuestions);
+            console.log(`📡 Received ${apiQuestions.length} total questions from all APIs`);
+            
+            // Separate questions by difficulty
+            const questionsByDifficulty = this.separateQuestionsByDifficulty(apiQuestions, avoidQuestions);
+            
+            // Get fallback questions separated by difficulty
+            const fallbacksByDifficulty = this.getFallbackQuestionsByDifficulty(avoidQuestions, new Set());
+            
+            // Combine API and fallback questions by difficulty
+            const combinedEasy = [...questionsByDifficulty.easy, ...fallbacksByDifficulty.easy];
+            const combinedMedium = [...questionsByDifficulty.medium, ...fallbacksByDifficulty.medium];
+            const combinedHard = [...questionsByDifficulty.hard, ...fallbacksByDifficulty.hard];
+            
+            // Shuffle each difficulty pool
+            this.shuffleArray(combinedEasy);
+            this.shuffleArray(combinedMedium);
+            this.shuffleArray(combinedHard);
+            
+            // Build quiz with proper progression: 2 easy, 4 medium, 4 hard, 3 extra (any difficulty)
+            const quizQuestions = [];
             const usedQuestions = new Set();
             
-            // Try to get questions from APIs first
-            const apiQuestions = await this.fetchFromAPIs(avoidQuestions);
+            // Add 2 easy questions (Q1-Q2)
+            this.addQuestionsFromPool(quizQuestions, combinedEasy, usedQuestions, 2, 'Easy');
             
-            // Add valid API questions
-            for (const question of apiQuestions) {
-                if (questions.length >= targetCount) break;
-                
-                const questionKey = question.question.toLowerCase().trim();
-                if (!usedQuestions.has(questionKey) && !avoidQuestions.has(questionKey)) {
-                    questions.push(question);
-                    usedQuestions.add(questionKey);
-                }
-            }
+            // Add 4 medium questions (Q3-Q6)
+            this.addQuestionsFromPool(quizQuestions, combinedMedium, usedQuestions, 4, 'Medium');
             
-            // Fill remaining slots with fallback questions
-            if (questions.length < targetCount) {
-                console.log(`🛡️ Using fallback questions to fill remaining ${targetCount - questions.length} slots`);
-                
-                const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, usedQuestions, targetCount - questions.length);
-                
-                for (const question of fallbackQuestions) {
-                    if (questions.length >= targetCount) break;
-                    
-                    const questionKey = question.question.toLowerCase().trim();
-                    if (!usedQuestions.has(questionKey)) {
-                        questions.push(question);
-                        usedQuestions.add(questionKey);
-                    }
-                }
-            }
+            // Add 4 hard questions (Q7-Q10)
+            this.addQuestionsFromPool(quizQuestions, combinedHard, usedQuestions, 4, 'Hard');
             
-            // Shuffle the final question order
-            this.shuffleArray(questions);
+            // Add 3 extra questions for rerolls (any difficulty)
+            const allRemaining = [
+                ...combinedEasy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+                ...combinedMedium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+                ...combinedHard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
+            ];
+            this.shuffleArray(allRemaining);
+            this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, 3, 'Mixed');
             
-            console.log(`✅ Loaded ${questions.length} questions (${apiQuestions.length} from API, ${questions.length - apiQuestions.length} fallback)`);
+            console.log(`✅ Loaded ${quizQuestions.length} questions with difficulty progression:`);
+            console.log(`   Q1-Q2:  Easy (${quizQuestions.slice(0, 2).length})`);
+            console.log(`   Q3-Q6:  Medium (${quizQuestions.slice(2, 6).length})`);
+            console.log(`   Q7-Q10: Hard (${quizQuestions.slice(6, 10).length})`);
+            console.log(`   Extra:  Rerolls (${quizQuestions.slice(10).length})`);
             
-            return questions;
+            this.logDifficultyStats(quizQuestions);
             
-            return questions;
+            return quizQuestions;
             
         } catch (error) {
             console.error('❌ Error loading questions:', error);
             
-            // Return fallback questions only
-            return this.getFallbackQuestions(avoidQuestions, new Set(), targetCount);
+            // Return fallback questions with proper difficulty progression
+            return this.buildFallbackQuestionsWithProgression(avoidQuestions, targetCount);
         }
     }
 
-    async fetchFromAPIs(avoidQuestions) {
+    separateQuestionsByDifficulty(questions, avoidQuestions) {
+        const separated = {
+            easy: [],
+            medium: [],
+            hard: []
+        };
+        
+        const usedQuestions = new Set();
+        
+        for (const question of questions) {
+            const questionKey = question.question.toLowerCase().trim();
+            
+            // Skip if already used or should be avoided
+            if (usedQuestions.has(questionKey) || avoidQuestions.has(questionKey)) {
+                continue;
+            }
+            
+            if (!this.isValidQuestion(question, avoidQuestions)) {
+                continue;
+            }
+            
+            usedQuestions.add(questionKey);
+            
+            // Normalize difficulty and categorize
+            const difficulty = (question.difficulty || 'medium').toLowerCase();
+            
+            if (difficulty === 'easy' || difficulty === 'beginner') {
+                separated.easy.push(question);
+            } else if (difficulty === 'hard' || difficulty === 'expert' || difficulty === 'difficult') {
+                separated.hard.push(question);
+            } else {
+                // Default to medium for 'medium', 'normal', or unknown difficulties
+                separated.medium.push(question);
+            }
+        }
+        
+        console.log(`📊 API Questions by Difficulty:`);
+        console.log(`   Easy: ${separated.easy.length}`);
+        console.log(`   Medium: ${separated.medium.length}`);
+        console.log(`   Hard: ${separated.hard.length}`);
+        
+        return separated;
+    }
+
+    getFallbackQuestionsByDifficulty(avoidQuestions, usedQuestions) {
+        const fallbacks = {
+            easy: [...FALLBACK_QUESTIONS.Easy],
+            medium: [...FALLBACK_QUESTIONS.Medium],
+            hard: [...FALLBACK_QUESTIONS.Hard]
+        };
+        
+        // Filter out avoided and used questions
+        Object.keys(fallbacks).forEach(difficulty => {
+            fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
+                const questionKey = question.question.toLowerCase().trim();
+                return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
+            });
+            
+            // Shuffle each difficulty pool
+            this.shuffleArray(fallbacks[difficulty]);
+        });
+        
+        console.log(`📚 Fallback Questions by Difficulty:`);
+        console.log(`   Easy: ${fallbacks.easy.length}`);
+        console.log(`   Medium: ${fallbacks.medium.length}`);
+        console.log(`   Hard: ${fallbacks.hard.length}`);
+        
+        return fallbacks;
+    }
+
+    addQuestionsFromPool(quizQuestions, pool, usedQuestions, needed, difficultyLabel) {
+        let added = 0;
+        
+        for (const question of pool) {
+            if (added >= needed) break;
+            
+            const questionKey = question.question.toLowerCase().trim();
+            
+            if (!usedQuestions.has(questionKey)) {
+                quizQuestions.push(question);
+                usedQuestions.add(questionKey);
+                added++;
+            }
+        }
+        
+        if (added < needed) {
+            console.warn(`⚠️ Could only add ${added}/${needed} ${difficultyLabel} questions`);
+        }
+        
+        return added;
+    }
+
+    buildFallbackQuestionsWithProgression(avoidQuestions, targetCount) {
+        console.log('🛡️ Building fallback questions with difficulty progression...');
+        
+        const fallbacks = this.getFallbackQuestionsByDifficulty(avoidQuestions, new Set());
+        const quizQuestions = [];
+        const usedQuestions = new Set();
+        
+        // Add questions with proper progression
+        this.addQuestionsFromPool(quizQuestions, fallbacks.easy, usedQuestions, 2, 'Easy (Fallback)');
+        this.addQuestionsFromPool(quizQuestions, fallbacks.medium, usedQuestions, 4, 'Medium (Fallback)');
+        this.addQuestionsFromPool(quizQuestions, fallbacks.hard, usedQuestions, 4, 'Hard (Fallback)');
+        
+        // Add extra questions for rerolls
+        const allRemaining = [
+            ...fallbacks.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+            ...fallbacks.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+            ...fallbacks.hard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
+        ];
+        this.shuffleArray(allRemaining);
+        this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, targetCount - quizQuestions.length, 'Extra (Fallback)');
+        
+        return quizQuestions;
+    }
+
+    logDifficultyStats(questions) {
+        console.log('\n🎯 Final Quiz Difficulty Progression:');
+        
+        questions.forEach((question, index) => {
+            const questionNum = (index + 1).toString().padStart(2, '0');
+            const difficulty = (question.difficulty || 'Medium').padEnd(6);
+            const source = (question.source || 'Fallback').padEnd(10);
+            
+            let expectedDifficulty = 'Mixed';
+            if (index < 2) expectedDifficulty = 'Easy';
+            else if (index < 6) expectedDifficulty = 'Medium';
+            else if (index < 10) expectedDifficulty = 'Hard';
+            
+            const status = expectedDifficulty === 'Mixed' ? '🔄' : 
+                         (question.difficulty || 'Medium').toLowerCase() === expectedDifficulty.toLowerCase() ? '✅' : '⚠️';
+            
+            console.log(`Q${questionNum}: ${status} ${difficulty} | ${source} | ${question.question.substring(0, 50)}...`);
+        });
+        
+        console.log('');
+    }
+
+    async fetchFromAllAPIs(avoidQuestions) {
         const allQuestions = [];
         
         // Use Promise.allSettled for concurrent API calls
-        const apiPromises = this.apiEndpoints.map(apiUrl => this.fetchFromSingleAPI(apiUrl, avoidQuestions));
+        const apiPromises = this.apiEndpoints.map((apiUrl, index) => 
+            this.fetchFromSingleAPI(apiUrl, avoidQuestions, index + 1)
+        );
         const results = await Promise.allSettled(apiPromises);
         
-        for (const result of results) {
+        for (let i = 0; i < results.length; i++) {
+            const result = results[i];
             if (result.status === 'fulfilled' && result.value.length > 0) {
+                console.log(`✅ API ${i + 1} (${this.getAPIName(this.apiEndpoints[i])}): ${result.value.length} questions`);
                 allQuestions.push(...result.value);
+            } else {
+                console.log(`❌ API ${i + 1} (${this.getAPIName(this.apiEndpoints[i])}): Failed or no questions`);
             }
         }
         
@@ -82,45 +243,53 @@ class QuestionLoader {
         return allQuestions;
     }
 
-    async fetchFromSingleAPI(apiUrl, avoidQuestions) {
+    async fetchFromSingleAPI(apiUrl, avoidQuestions, apiNumber) {
         try {
-            console.log(`📡 Fetching from API: ${this.getAPIName(apiUrl)}`);
+            console.log(`📡 API ${apiNumber}: Fetching from ${this.getAPIName(apiUrl)}`);
             
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
+            // Special headers for different APIs
+            const headers = {
+                'User-Agent': 'AnimeQuizBot/1.0',
+                'Accept': 'application/json'
+            };
+            
+            // Add API key for API Ninjas if available
+            if (apiUrl.includes('api-ninjas.com') && process.env.API_NINJAS_KEY) {
+                headers['X-Api-Key'] = process.env.API_NINJAS_KEY;
+            }
+            
             const response = await fetch(apiUrl, {
                 method: 'GET',
-                headers: {
-                    'User-Agent': 'AnimeQuizBot/1.0',
-                    'Accept': 'application/json'
-                },
+                headers,
                 signal: controller.signal
             });
             
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                console.warn(`⚠️ API ${this.getAPIName(apiUrl)} returned status ${response.status}`);
+                console.warn(`⚠️ API ${apiNumber} (${this.getAPIName(apiUrl)}) returned status ${response.status}`);
                 return [];
             }
             
             const data = await response.json();
-            const questions = this.parseAPIResponse(data, apiUrl);
+            const questions = this.parseAPIResponse(data, apiUrl, apiNumber);
             
             // Filter and validate questions
             const validQuestions = questions.filter(q => this.isValidQuestion(q, avoidQuestions));
             
-            console.log(`✅ Got ${validQuestions.length} valid questions from ${this.getAPIName(apiUrl)}`);
+            console.log(`✅ API ${apiNumber}: Got ${validQuestions.length}/${questions.length} valid questions`);
             return validQuestions;
             
         } catch (error) {
-            console.warn(`⚠️ API ${this.getAPIName(apiUrl)} failed: ${error.message}`);
+            console.warn(`⚠️ API ${apiNumber} (${this.getAPIName(apiUrl)}) failed: ${error.message}`);
             return [];
         }
     }
 
-    parseAPIResponse(data, apiUrl) {
+    parseAPIResponse(data, apiUrl, apiNumber) {
         const questions = [];
         
         try {
@@ -136,7 +305,6 @@ class QuestionLoader {
                             source: 'OpenTDB'
                         };
                         
-                        // Shuffle options
                         this.shuffleArray(question.options);
                         questions.push(question);
                     }
@@ -153,14 +321,67 @@ class QuestionLoader {
                             source: 'TriviaAPI'
                         };
                         
-                        // Shuffle options
                         this.shuffleArray(question.options);
+                        questions.push(question);
+                    }
+                }
+            } else if (apiUrl.includes('aniquizapi.vercel.app')) {
+                // AniQuizAPI format
+                if (data.question) {
+                    const question = {
+                        question: this.cleanText(data.question),
+                        answer: this.cleanText(data.answer),
+                        options: data.options ? data.options.map(opt => this.cleanText(opt)) : [],
+                        difficulty: data.difficulty || 'Medium',
+                        source: 'AniQuizAPI'
+                    };
+                    
+                    // Ensure answer is in options
+                    if (!question.options.includes(question.answer)) {
+                        question.options.push(question.answer);
+                    }
+                    
+                    this.shuffleArray(question.options);
+                    questions.push(question);
+                }
+            } else if (apiUrl.includes('beta-trivia.bongobot.io')) {
+                // Beta Trivia API format
+                if (Array.isArray(data)) {
+                    for (const item of data) {
+                        if (item.category && item.category.includes('Anime')) {
+                            const question = {
+                                question: this.cleanText(item.question),
+                                answer: this.cleanText(item.correct_answer),
+                                options: [...item.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(item.correct_answer)],
+                                difficulty: item.difficulty || 'Medium',
+                                source: 'BetaTrivia'
+                            };
+                            
+                            this.shuffleArray(question.options);
+                            questions.push(question);
+                        }
+                    }
+                }
+            } else if (apiUrl.includes('api-ninjas.com')) {
+                // API Ninjas format
+                if (Array.isArray(data)) {
+                    for (const item of data) {
+                        // Create multiple choice from the answer
+                        const correctAnswer = this.cleanText(item.answer);
+                        const question = {
+                            question: this.cleanText(item.question),
+                            answer: correctAnswer,
+                            options: [correctAnswer], // Will add dummy options in validation if anime-related
+                            difficulty: 'Medium',
+                            source: 'APINinjas'
+                        };
+                        
                         questions.push(question);
                     }
                 }
             }
         } catch (error) {
-            console.error('❌ Error parsing API response:', error);
+            console.error(`❌ Error parsing API ${apiNumber} response:`, error);
         }
         
         return questions;
@@ -169,7 +390,34 @@ class QuestionLoader {
     isValidQuestion(question, avoidQuestions) {
         try {
             // Basic validation
-            if (!question.question || !question.answer || !question.options || question.options.length < 2) {
+            if (!question.question || !question.answer) {
+                return false;
+            }
+            
+            // For API Ninjas questions, create dummy options if anime-related
+            if (question.source === 'APINinjas' && question.options.length === 1) {
+                const questionLower = question.question.toLowerCase();
+                const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
+                    questionLower.includes(keyword.toLowerCase())
+                ) || ANIME_TITLES.some(title => 
+                    questionLower.includes(title.toLowerCase())
+                );
+                
+                if (!hasAnimeContent) {
+                    return false; // Skip non-anime questions from API Ninjas
+                }
+                
+                // Add dummy options for anime questions
+                question.options = [
+                    question.answer,
+                    'Option A',
+                    'Option B',
+                    'Option C'
+                ];
+                this.shuffleArray(question.options);
+            }
+            
+            if (!question.options || question.options.length < 2) {
                 return false;
             }
             
@@ -186,12 +434,12 @@ class QuestionLoader {
                 return false;
             }
             
-            // Check question length (avoid too long questions for Discord)
+            // Check question length
             if (question.question.length > 200) {
                 return false;
             }
             
-            // Check if options are reasonable length
+            // Check option lengths
             const hasLongOptions = question.options.some(opt => opt.length > 80);
             if (hasLongOptions) {
                 return false;
@@ -203,7 +451,6 @@ class QuestionLoader {
             );
             
             if (hasBadKeyword) {
-                // Check if it has allowed patterns (like voice actor questions)
                 const hasAllowedPattern = [
                     'voice.*actor', 'voiced by', 'seiyuu', 'dub.*actor',
                     'year.*air', 'when.*air', 'what year.*release'
@@ -214,26 +461,25 @@ class QuestionLoader {
                 }
             }
             
-            // Require anime content
-            const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            ) || ANIME_TITLES.some(title => 
-                questionLower.includes(title.toLowerCase())
-            );
-            
-            if (!hasAnimeContent) {
-                return false;
+            // Require anime content (except for AniQuizAPI which is already anime-focused)
+            if (question.source !== 'AniQuizAPI') {
+                const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
+                    questionLower.includes(keyword.toLowerCase())
+                ) || ANIME_TITLES.some(title => 
+                    questionLower.includes(title.toLowerCase())
+                );
+                
+                if (!hasAnimeContent) {
+                    return false;
+                }
             }
             
             // Additional quality checks
-            
-            // Avoid questions with too many numbers (usually statistics)
             const numberCount = (question.question.match(/\d+/g) || []).length;
             if (numberCount > 2) {
                 return false;
             }
             
-            // Avoid questions with multiple choice indicators in the question text
             if (/\b(a\)|b\)|c\)|d\)|\(a\)|\(b\)|\(c\)|\(d\))/i.test(questionLower)) {
                 return false;
             }
@@ -247,17 +493,14 @@ class QuestionLoader {
     }
 
     getFallbackQuestions(avoidQuestions, usedQuestions, targetCount = 13) {
-        // Combine all fallback questions with balanced difficulty
         const easyQuestions = [...FALLBACK_QUESTIONS.Easy];
         const mediumQuestions = [...FALLBACK_QUESTIONS.Medium];
         const hardQuestions = [...FALLBACK_QUESTIONS.Hard];
         
-        // Shuffle each difficulty category
         this.shuffleArray(easyQuestions);
         this.shuffleArray(mediumQuestions);
         this.shuffleArray(hardQuestions);
         
-        // Create balanced mix: 40% easy, 40% medium, 20% hard
         const easyCount = Math.ceil(targetCount * 0.4);
         const mediumCount = Math.ceil(targetCount * 0.4);
         const hardCount = targetCount - easyCount - mediumCount;
@@ -268,13 +511,11 @@ class QuestionLoader {
             ...hardQuestions.slice(0, hardCount)
         ];
         
-        // Filter out avoided and already used questions
         const availableFallbacks = balancedQuestions.filter(question => {
             const questionKey = question.question.toLowerCase().trim();
             return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
         });
         
-        // If we don't have enough unique questions, add more from any category
         if (availableFallbacks.length < targetCount) {
             console.warn(`⚠️ Only ${availableFallbacks.length} unique fallback questions available, adding more...`);
             
@@ -295,7 +536,6 @@ class QuestionLoader {
             }
         }
         
-        // Final shuffle and limit to target count
         this.shuffleArray(availableFallbacks);
         return availableFallbacks.slice(0, targetCount);
     }
@@ -330,10 +570,31 @@ class QuestionLoader {
     getAPIName(url) {
         if (url.includes('opentdb.com')) return 'OpenTDB';
         if (url.includes('trivia-api.com')) return 'TriviaAPI';
+        if (url.includes('aniquizapi.vercel.app')) return 'AniQuizAPI';
+        if (url.includes('beta-trivia.bongobot.io')) return 'BetaTrivia';
+        if (url.includes('api-ninjas.com')) return 'APINinjas';
         return 'Unknown';
     }
 
-    // Get question statistics
+    logAPIStats(questions) {
+        const stats = {
+            total: questions.length,
+            bySource: {}
+        };
+        
+        questions.forEach(q => {
+            const source = q.source || 'Unknown';
+            stats.bySource[source] = (stats.bySource[source] || 0) + 1;
+        });
+        
+        console.log('\n📊 API Statistics:');
+        console.log(`Total Questions: ${stats.total}`);
+        Object.entries(stats.bySource).forEach(([source, count]) => {
+            console.log(`  ${source}: ${count} questions`);
+        });
+        console.log('');
+    }
+
     getQuestionStats(questions) {
         const stats = {
             total: questions.length,
