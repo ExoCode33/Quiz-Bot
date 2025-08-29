@@ -420,7 +420,7 @@ class QuizManager {
             }
 
             // Enhanced logging with actual question and answer details
-            console.log(`\n🎯 Quiz Question Asked - User ${userId}`);
+            console.log(`\n🎯 Quiz Question Asked - User ${session.userId}`);
             console.log(`Question ${questionNum}: ${question.question}`);
             console.log(`✅ Correct Answer: ${question.answer}`);
             console.log(`📋 All Options: ${question.options.join(' | ')}`);
