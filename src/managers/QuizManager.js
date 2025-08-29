@@ -451,9 +451,9 @@ class QuizManager {
                 })
                 .setTimestamp();
 
-            // Add GIF at the top of the embed (thumbnail position)
+            // Add GIF at the top of the embed (main image position)
             if (gifAttachment) {
-                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                embed.setImage(`attachment://${gifAttachment.name}`);
             }
 
             // Create answer buttons
@@ -620,7 +620,7 @@ class QuizManager {
                 
                 // Keep GIF at the top during countdown
                 if (gifAttachment) {
-                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                    embed.setImage(`attachment://${gifAttachment.name}`);
                 }
                 
                 const updateData = { embeds: [embed] };
@@ -771,7 +771,7 @@ class QuizManager {
 
             // Keep GIF at the top for answer reveal
             if (gifAttachment) {
-                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                embed.setImage(`attachment://${gifAttachment.name}`);
             }
 
             const updateData = { embeds: [embed], components: [] };
@@ -833,7 +833,7 @@ class QuizManager {
 
             // Keep GIF at the top for continuation screen
             if (gifAttachment) {
-                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                embed.setImage(`attachment://${gifAttachment.name}`);
             }
 
             const buttons = [
@@ -876,7 +876,7 @@ class QuizManager {
                     
                     // Keep GIF at the top for loading screen
                     if (loadingGif) {
-                        loadingEmbed.setThumbnail(`attachment://${loadingGif.name}`);
+                        loadingEmbed.setImage(`attachment://${loadingGif.name}`);
                     }
                     
                     const updateData = { embeds: [loadingEmbed], components: [] };
@@ -923,7 +923,7 @@ class QuizManager {
             
             // Keep GIF at the top for abandon screen
             if (gifAttachment) {
-                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                embed.setImage(`attachment://${gifAttachment.name}`);
             }
             
             const updateData = { embeds: [embed], components: [] };
@@ -970,7 +970,7 @@ class QuizManager {
                 
                 // Keep GIF at the top for timeout message
                 if (gifAttachment) {
-                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                    embed.setImage(`attachment://${gifAttachment.name}`);
                 }
                 
                 const messageData = { embeds: [embed] };
@@ -1003,7 +1003,7 @@ class QuizManager {
                 
                 // Keep GIF at the top for continuation timeout
                 if (gifAttachment) {
-                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                    embed.setImage(`attachment://${gifAttachment.name}`);
                 }
                 
                 const messageData = { embeds: [embed] };
@@ -1174,7 +1174,7 @@ class QuizManager {
             
             // Keep GIF at the top for final results
             if (gifAttachment) {
-                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                embed.setImage(`attachment://${gifAttachment.name}`);
             }
             
             const messageData = { embeds: [embed] };
@@ -1225,7 +1225,7 @@ class QuizManager {
         
         // Keep GIF at the top for already completed message
         if (gifAttachment) {
-            embed.setThumbnail(`attachment://${gifAttachment.name}`);
+            embed.setImage(`attachment://${gifAttachment.name}`);
         }
         
         const messageData = { embeds: [embed], ephemeral: true };
