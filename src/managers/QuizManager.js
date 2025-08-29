@@ -90,6 +90,26 @@ class QuizManager {
                 // Save question hashes to history (async)
                 this.saveQuestionsToHistory(userId, guildId, questions).catch(console.error);
                 
+                // Log all preloaded questions with colored output
+                console.log(`\n🌸 ═══════════════════════════════════════════════════════════════════════════════`);
+                console.log(`📚 NICO ROBIN'S ANCIENT KNOWLEDGE LIBRARY - ${questions.length} TEXTS PREPARED`);
+                console.log(`🔍 For Archaeologist: ${userId} in Guild: ${guildId}`);
+                console.log(`🌸 ═══════════════════════════════════════════════════════════════════════════════\n`);
+                
+                questions.forEach((question, index) => {
+                    console.log(`📜 Ancient Text ${index + 1}/${questions.length}:`);
+                    console.log(`   Question: ${question.question}`);
+                    console.log(`   \x1b[32mAnswer: ${question.answer}\x1b[0m`); // Green color
+                    console.log(`   Options: [${question.options.join(', ')}]`);
+                    console.log(`   Difficulty: ${question.difficulty || 'Medium'}`);
+                    console.log(`   Source: ${question.source || 'Fallback'}`);
+                    console.log(''); // Empty line for spacing
+                });
+                
+                console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════`);
+                console.log(`🌸 "Knowledge is a treasure that follows its owner everywhere." - Nico Robin`);
+                console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════\n`);
+                
                 console.log(`✅ Preloaded ${questions.length} questions for user ${userId}`);
                 return questions;
             }
