@@ -31,10 +31,14 @@ module.exports = {
             // Check if user has active quiz
             if (interaction.quizManager.hasActiveQuiz(interaction.user.id, interaction.guild.id)) {
                 return await interaction.reply({
-                    content: '⚔️ **Active Quest Detected**\n\nYou already have an ongoing challenge!\n\n*Complete your current quest first.*',
+                    content: '⚔️ **Active Quiz Detected**\n\nYou already have an ongoing quiz!\n\n*Complete your current quiz first.*',
                     ephemeral: true
                 });
             }
+
+            // Preload questions immediately for instant quiz start
+            console.log(`🔄 Preloading questions for user ${interaction.user.id}...`);
+            interaction.quizManager.preloadQuestions(interaction.user.id, interaction.guild.id).catch(console.error);
 
             // Show quiz introduction
             const introEmbed = new EmbedBuilder()
@@ -50,6 +54,11 @@ module.exports = {
                     {
                         name: '🎯 Buff Tiers',
                         value: `⚪ **1**: Common Buff\n🟢 **2**: Uncommon Buff\n🔵 **3**: Rare Buff\n🟣 **4**: Epic Buff\n🟡 **5-6**: Legendary Buff\n🟠 **7-8**: Mythical Buff\n🔴 **9-10**: Divine Buff`,
+                        inline: false
+                    },
+                    {
+                        name: '🎲 Special Features',
+                        value: `🔄 **3 Rerolls** per quiz\n⚡ **Instant Start** - questions preloaded\n📊 **Live Progress** tracking`,
                         inline: false
                     }
                 )
@@ -82,14 +91,14 @@ module.exports = {
                     embeds: [
                         new EmbedBuilder()
                             .setColor('#FF9500')
-                            .setTitle('🌊 Loading Questions...')
-                            .setDescription(`**Preparing your anime challenge**\n\nGathering questions from across all anime series...\n\n*This may take a moment!*`)
-                            .setFooter({ text: 'Get ready to prove your anime knowledge!' })
+                            .setTitle('🚀 Starting Quiz...')
+                            .setDescription(`**Loading your anime quiz**\n\nQuestions are ready! Starting immediately...\n\n*Let's test your knowledge!*`)
+                            .setFooter({ text: 'Get ready to prove your anime expertise!' })
                     ],
                     components: []
                 });
 
-                // Start the quiz
+                // Start the quiz immediately with preloaded questions
                 await interaction.quizManager.startQuiz(buttonInteraction, interaction.user.id, interaction.guild.id);
             });
 
@@ -116,7 +125,7 @@ module.exports = {
             console.error('Error in quiz command:', error);
             
             const errorMessage = {
-                content: '💀 **Error**\n\nSomething went wrong while preparing your challenge.\n\n*Please try again!*',
+                content: '💀 **Error**\n\nSomething went wrong while preparing your quiz.\n\n*Please try again!*',
                 ephemeral: true
             };
 
@@ -179,8 +188,8 @@ module.exports = {
         
         const embed = new EmbedBuilder()
             .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-            .setTitle('📋 Today\'s Quest Complete')
-            .setDescription('**You\'ve already completed today\'s challenge!**')
+            .setTitle('📋 Today\'s Quiz Complete')
+            .setDescription('**You\'ve already completed today\'s quiz!**')
             .addFields(
                 {
                     name: '⚔️ Your Results',
@@ -188,7 +197,7 @@ module.exports = {
                     inline: true
                 },
                 {
-                    name: '🌅 Next Quest',
+                    name: '🌅 Next Quiz',
                     value: `**Available:** <t:${nextReset.unix}:R>\n**Reset:** ${process.env.DAILY_RESET_HOUR_EDT || 0}:${(process.env.DAILY_RESET_MINUTE_EDT || 30).toString().padStart(2, '0')} EDT`,
                     inline: true
                 },
@@ -198,7 +207,7 @@ module.exports = {
                     inline: false
                 }
             )
-            .setFooter({ text: 'Return tomorrow for a new challenge!' })
+            .setFooter({ text: 'Return tomorrow for a new quiz!' })
             .setTimestamp();
         
         return await interaction.reply({ embeds: [embed], ephemeral: true });
