@@ -3,16 +3,16 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 class QuestionLoader {
     constructor() {
         this.apiEndpoints = [
-            // Existing APIs (increased amounts)
+            // Working APIs (increased amounts)
             'https://opentdb.com/api.php?amount=10&category=31&type=multiple',
             'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=10',
             
-            // New Anime-Specific APIs
-            'https://aniquizapi.vercel.app/api/random', // AniQuizAPI - random questions
-            'https://beta-trivia.bongobot.io/?category=Entertainment: Japanese Anime & Manga&limit=8',
+            // Fixed API endpoints
+            'https://aniquizapi.vercel.app/api/quiz?difficulty=medium', // Single question endpoint
+            'https://beta-trivia.bongobot.io/?category=entertainment&limit=8', // Fixed category name
             
-            // Backup API with anime filtering
-            'https://api.api-ninjas.com/v1/trivia?category=science&limit=5' // Will be filtered for anime content
+            // Alternative working API instead of API Ninjas
+            'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=hard' // Second OpenTDB call for hard questions
         ];
     }
 
@@ -248,18 +248,14 @@ class QuestionLoader {
             console.log(`📡 API ${apiNumber}: Fetching from ${this.getAPIName(apiUrl)}`);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout to 15 seconds
             
             // Special headers for different APIs
             const headers = {
                 'User-Agent': 'AnimeQuizBot/1.0',
-                'Accept': 'application/json'
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
             };
-            
-            // Add API key for API Ninjas if available
-            if (apiUrl.includes('api-ninjas.com') && process.env.API_NINJAS_KEY) {
-                headers['X-Api-Key'] = process.env.API_NINJAS_KEY;
-            }
             
             const response = await fetch(apiUrl, {
                 method: 'GET',
@@ -310,7 +306,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('trivia-api.com')) {
-                // The Trivia API format
+                // The Trivia API format - relaxed filtering
                 if (Array.isArray(data)) {
                     for (const item of data) {
                         const question = {
@@ -326,7 +322,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('aniquizapi.vercel.app')) {
-                // AniQuizAPI format
+                // AniQuizAPI format - single question response
                 if (data.question) {
                     const question = {
                         question: this.cleanText(data.question),
@@ -341,43 +337,44 @@ class QuestionLoader {
                         question.options.push(question.answer);
                     }
                     
+                    // Pad with dummy options if needed
+                    while (question.options.length < 4) {
+                        question.options.push(`Option ${question.options.length}`);
+                    }
+                    
                     this.shuffleArray(question.options);
                     questions.push(question);
                 }
             } else if (apiUrl.includes('beta-trivia.bongobot.io')) {
-                // Beta Trivia API format
+                // Beta Trivia API format - more flexible parsing
                 if (Array.isArray(data)) {
                     for (const item of data) {
-                        if (item.category && item.category.includes('Anime')) {
-                            const question = {
-                                question: this.cleanText(item.question),
-                                answer: this.cleanText(item.correct_answer),
-                                options: [...item.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(item.correct_answer)],
-                                difficulty: item.difficulty || 'Medium',
-                                source: 'BetaTrivia'
-                            };
-                            
-                            this.shuffleArray(question.options);
-                            questions.push(question);
-                        }
-                    }
-                }
-            } else if (apiUrl.includes('api-ninjas.com')) {
-                // API Ninjas format
-                if (Array.isArray(data)) {
-                    for (const item of data) {
-                        // Create multiple choice from the answer
-                        const correctAnswer = this.cleanText(item.answer);
+                        // Accept all entertainment questions, not just anime-specific
                         const question = {
                             question: this.cleanText(item.question),
-                            answer: correctAnswer,
-                            options: [correctAnswer], // Will add dummy options in validation if anime-related
-                            difficulty: 'Medium',
-                            source: 'APINinjas'
+                            answer: this.cleanText(item.correct_answer),
+                            options: [...item.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(item.correct_answer)],
+                            difficulty: item.difficulty || 'Medium',
+                            source: 'BetaTrivia'
                         };
                         
+                        this.shuffleArray(question.options);
                         questions.push(question);
                     }
+                } else if (data.question) {
+                    // Single question format
+                    const question = {
+                        question: this.cleanText(data.question),
+                        answer: this.cleanText(data.correct_answer || data.answer),
+                        options: data.incorrect_answers ? 
+                            [...data.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(data.correct_answer || data.answer)] :
+                            [this.cleanText(data.correct_answer || data.answer), 'Option A', 'Option B', 'Option C'],
+                        difficulty: data.difficulty || 'Medium',
+                        source: 'BetaTrivia'
+                    };
+                    
+                    this.shuffleArray(question.options);
+                    questions.push(question);
                 }
             }
         } catch (error) {
@@ -394,29 +391,7 @@ class QuestionLoader {
                 return false;
             }
             
-            // For API Ninjas questions, create dummy options if anime-related
-            if (question.source === 'APINinjas' && question.options.length === 1) {
-                const questionLower = question.question.toLowerCase();
-                const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
-                    questionLower.includes(keyword.toLowerCase())
-                ) || ANIME_TITLES.some(title => 
-                    questionLower.includes(title.toLowerCase())
-                );
-                
-                if (!hasAnimeContent) {
-                    return false; // Skip non-anime questions from API Ninjas
-                }
-                
-                // Add dummy options for anime questions
-                question.options = [
-                    question.answer,
-                    'Option A',
-                    'Option B',
-                    'Option C'
-                ];
-                this.shuffleArray(question.options);
-            }
-            
+            // Ensure we have options
             if (!question.options || question.options.length < 2) {
                 return false;
             }
@@ -445,7 +420,7 @@ class QuestionLoader {
                 return false;
             }
             
-            // Filter out bad keywords (production/technical questions)
+            // Filter out bad keywords (production/technical questions) - but be more lenient
             const hasBadKeyword = BAD_KEYWORDS.some(keyword => 
                 questionLower.includes(keyword.toLowerCase())
             );
@@ -453,7 +428,8 @@ class QuestionLoader {
             if (hasBadKeyword) {
                 const hasAllowedPattern = [
                     'voice.*actor', 'voiced by', 'seiyuu', 'dub.*actor',
-                    'year.*air', 'when.*air', 'what year.*release'
+                    'year.*air', 'when.*air', 'what year.*release',
+                    'character', 'protagonist', 'anime', 'manga'
                 ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
                 
                 if (!hasAllowedPattern) {
@@ -461,22 +437,32 @@ class QuestionLoader {
                 }
             }
             
-            // Require anime content (except for AniQuizAPI which is already anime-focused)
-            if (question.source !== 'AniQuizAPI') {
+            // More lenient anime content requirement
+            if (question.source !== 'AniQuizAPI' && question.source !== 'OpenTDB') {
                 const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
                     questionLower.includes(keyword.toLowerCase())
                 ) || ANIME_TITLES.some(title => 
                     questionLower.includes(title.toLowerCase())
-                );
+                ) || [
+                    // Additional anime-related terms
+                    'character', 'protagonist', 'hero', 'villain', 'series',
+                    'japanese', 'manga', 'otaku', 'cosplay', 'studio'
+                ].some(term => questionLower.includes(term));
                 
                 if (!hasAnimeContent) {
-                    return false;
+                    // For TriviaAPI and BetaTrivia, be more lenient since they're from anime categories
+                    if (question.source === 'TriviaAPI' || question.source === 'BetaTrivia') {
+                        // Allow questions from anime categories even if they don't have specific keywords
+                        console.log(`🔍 Allowing question from ${question.source}: ${question.question.substring(0, 50)}...`);
+                    } else {
+                        return false;
+                    }
                 }
             }
             
-            // Additional quality checks
+            // Additional quality checks - more lenient
             const numberCount = (question.question.match(/\d+/g) || []).length;
-            if (numberCount > 2) {
+            if (numberCount > 3) { // Increased from 2 to 3
                 return false;
             }
             
@@ -568,11 +554,13 @@ class QuestionLoader {
     }
 
     getAPIName(url) {
-        if (url.includes('opentdb.com')) return 'OpenTDB';
+        if (url.includes('opentdb.com')) {
+            if (url.includes('difficulty=hard')) return 'OpenTDB-Hard';
+            return 'OpenTDB';
+        }
         if (url.includes('trivia-api.com')) return 'TriviaAPI';
         if (url.includes('aniquizapi.vercel.app')) return 'AniQuizAPI';
         if (url.includes('beta-trivia.bongobot.io')) return 'BetaTrivia';
-        if (url.includes('api-ninjas.com')) return 'APINinjas';
         return 'Unknown';
     }
 
