@@ -1,6 +1,8 @@
-const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const QuestionLoader = require('../utils/QuestionLoader');
 const { TIER_COLORS, TIER_NAMES, TIER_EMOJIS, TIER_DESCRIPTIONS, FALLBACK_QUESTIONS } = require('../utils/constants');
+const path = require('path');
+const fs = require('fs');
 
 class QuizManager {
     constructor(client, databaseManager, redisManager) {
@@ -17,6 +19,9 @@ class QuizManager {
         
         // Preloaded questions cache
         this.preloadedQuestions = new Map();
+        
+        // GIF path for consistent usage
+        this.gifPath = path.join(process.cwd(), 'assets', 'anime.gif');
     }
 
     // Check if user already completed quiz today
@@ -90,12 +95,15 @@ class QuizManager {
                 // Save question hashes to history (async)
                 this.saveQuestionsToHistory(userId, guildId, questions).catch(console.error);
                 
-                // Clean, organized logging
-                console.log(`\n📚 Nico Robin's Library - ${questions.length} Questions Preloaded for User ${userId}`);
+                // Improved, organized logging with actual answers shown
+                console.log(`\n🌸 Nico Robin's Library - Questions Preloaded for User ${userId}`);
+                console.log('═══════════════════════════════════════════════════════════════════');
                 questions.forEach((question, index) => {
-                    console.log(`Question ${index + 1} - \x1b[32mAnswer ${index + 1}\x1b[0m`);
+                    console.log(`\x1b[36mQuestion ${(index + 1).toString().padStart(2, '0')}\x1b[0m: ${question.question}`);
+                    console.log(`\x1b[32mAnswer ${(index + 1).toString().padStart(2, '0')}\x1b[0m:   ${question.answer}`);
+                    console.log('───────────────────────────────────────────────────────────────────');
                 });
-                console.log(`✅ Quiz ready with ${questions.length} questions\n`);
+                console.log(`\x1b[35m✅ Quiz ready with ${questions.length} questions - All answers logged above\x1b[0m\n`);
                 
                 return questions;
             }
@@ -106,6 +114,19 @@ class QuizManager {
             console.error('Error preloading questions:', error);
             return [];
         }
+    }
+
+    // Helper method to create and manage GIF attachment
+    createGifAttachment() {
+        try {
+            if (fs.existsSync(this.gifPath)) {
+                // Create a new attachment each time to ensure GIF restarts
+                return new AttachmentBuilder(this.gifPath, { name: `anime_${Date.now()}.gif` });
+            }
+        } catch (error) {
+            console.warn('⚠️ Error loading anime.gif:', error.message);
+        }
+        return null;
     }
 
     // Save questions to history asynchronously
@@ -146,6 +167,9 @@ class QuizManager {
                 });
             }
 
+            // Send all questions and answers to chat for verification
+            await this.displayAllQuestions(interaction, questions, userId);
+
             // Initialize quiz session with first 10 questions
             const quizSession = {
                 userId,
@@ -163,8 +187,10 @@ class QuizManager {
             // Save quiz session
             await this.saveQuizSession(userId, guildId, quizSession);
 
-            // Start first question immediately
-            await this.askQuestion(interaction, quizSession);
+            // Start first question after a brief delay
+            setTimeout(async () => {
+                await this.askQuestion(interaction, quizSession);
+            }, 2000);
 
         } catch (error) {
             console.error('Error starting quiz:', error);
@@ -172,6 +198,98 @@ class QuizManager {
                 content: '❌ **Error**\n\nSomething went wrong. Please try again!',
                 components: []
             });
+        }
+    }
+
+    // Display all questions and answers in chat for verification
+    async displayAllQuestions(interaction, questions, userId) {
+        try {
+            // Create embed showing all questions and answers
+            const embed = new EmbedBuilder()
+                .setColor('#FFD700')
+                .setTitle('🔍 Quiz Debug Information')
+                .setDescription(`**All Questions Loaded for User ${userId}**\n*This is for verification purposes only*`)
+                .setFooter({ text: 'Quiz will begin in 2 seconds...' })
+                .setTimestamp();
+
+            // Split questions into chunks to avoid Discord embed limits
+            const questionChunks = [];
+            let currentChunk = '';
+            
+            for (let i = 0; i < questions.length; i++) {
+                const question = questions[i];
+                const questionLine = `**Q${(i + 1).toString().padStart(2, '0')}:** ${question.question}\n**A${(i + 1).toString().padStart(2, '0')}:** ${question.answer}\n\n`;
+                
+                // Check if adding this question would exceed field value limit (1024 chars)
+                if (currentChunk.length + questionLine.length > 950) {
+                    questionChunks.push(currentChunk);
+                    currentChunk = questionLine;
+                } else {
+                    currentChunk += questionLine;
+                }
+            }
+            
+            // Add the last chunk
+            if (currentChunk) {
+                questionChunks.push(currentChunk);
+            }
+
+            // Add fields for each chunk
+            questionChunks.forEach((chunk, index) => {
+                const startQ = index * Math.ceil(questions.length / questionChunks.length) + 1;
+                const endQ = Math.min((index + 1) * Math.ceil(questions.length / questionChunks.length), questions.length);
+                
+                embed.addFields({
+                    name: `📚 Questions ${startQ}-${endQ}`,
+                    value: chunk,
+                    inline: false
+                });
+            });
+
+            // Send the debug information
+            await interaction.followUp({ embeds: [embed], ephemeral: false });
+
+            // Also send a simple text version for easier reading
+            let textOutput = `🎯 **Quiz Debug - All ${questions.length} Questions for User ${userId}**\n\`\`\`\n`;
+            
+            questions.forEach((question, index) => {
+                textOutput += `Q${(index + 1).toString().padStart(2, '0')}: ${question.question}\n`;
+                textOutput += `A${(index + 1).toString().padStart(2, '0')}: ${question.answer}\n`;
+                textOutput += `${'-'.repeat(50)}\n`;
+            });
+            
+            textOutput += `\`\`\``;
+
+            // Split text output if it's too long for Discord
+            const maxLength = 1900; // Leave room for formatting
+            if (textOutput.length > maxLength) {
+                let chunks = [];
+                let currentTextChunk = '🎯 **Quiz Debug - Questions & Answers**\n```\n';
+                
+                questions.forEach((question, index) => {
+                    const questionBlock = `Q${(index + 1).toString().padStart(2, '0')}: ${question.question}\nA${(index + 1).toString().padStart(2, '0')}: ${question.answer}\n${'-'.repeat(50)}\n`;
+                    
+                    if (currentTextChunk.length + questionBlock.length + 3 > maxLength) { // +3 for closing ```
+                        chunks.push(currentTextChunk + '```');
+                        currentTextChunk = '```\n' + questionBlock;
+                    } else {
+                        currentTextChunk += questionBlock;
+                    }
+                });
+                
+                chunks.push(currentTextChunk + '```');
+                
+                // Send each chunk
+                for (const chunk of chunks) {
+                    await interaction.followUp({ content: chunk, ephemeral: false });
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between chunks
+                }
+            } else {
+                await interaction.followUp({ content: textOutput, ephemeral: false });
+            }
+
+        } catch (error) {
+            console.error('Error displaying all questions:', error);
         }
     }
 
@@ -293,20 +411,10 @@ class QuizManager {
             else if (session.score >= 4) embedColor = '#9C27B0';
             else if (session.score >= 2) embedColor = '#2196F3';
 
-            // Load GIF for question pages
-            let attachment = null;
-            const gifPath = require('path').join(process.cwd(), 'assets', 'anime.gif');
+            // Create GIF attachment that restarts each time
+            const gifAttachment = this.createGifAttachment();
             
-            try {
-                if (require('fs').existsSync(gifPath)) {
-                    const { AttachmentBuilder } = require('discord.js');
-                    attachment = new AttachmentBuilder(gifPath, { name: 'anime.gif' });
-                }
-            } catch (error) {
-                console.warn('⚠️ Error loading anime.gif for question:', error.message);
-            }
-            
-            // Create question embed with Nico Robin theme + GIF
+            // Create question embed with Nico Robin theme + GIF at the top
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
                 .setTitle(`⚔️ Question ${questionNum}/10`)
@@ -343,9 +451,9 @@ class QuizManager {
                 })
                 .setTimestamp();
 
-            // Add GIF to question pages
-            if (attachment) {
-                embed.setImage('attachment://anime.gif');
+            // Add GIF at the top of the embed (thumbnail position)
+            if (gifAttachment) {
+                embed.setThumbnail(`attachment://${gifAttachment.name}`);
             }
 
             // Create answer buttons
@@ -376,8 +484,8 @@ class QuizManager {
 
             let message;
             const messageData = { embeds: [embed], components };
-            if (attachment) {
-                messageData.files = [attachment];
+            if (gifAttachment) {
+                messageData.files = [gifAttachment];
             }
 
             if (session.currentQuestion === 0) {
@@ -386,6 +494,13 @@ class QuizManager {
             } else {
                 message = await interaction.followUp(messageData);
             }
+
+            // Enhanced logging with actual question and answer details
+            console.log(`\n🎯 Quiz Question Asked - User ${userId}`);
+            console.log(`Question ${questionNum}: ${question.question}`);
+            console.log(`✅ Correct Answer: ${question.answer}`);
+            console.log(`📋 All Options: ${question.options.join(' | ')}`);
+            console.log(`⏱️ Time Limit: ${session.timeRemaining} seconds\n`);
 
             // Start time countdown
             await this.startTimeCountdown(interaction, session, message);
@@ -462,6 +577,9 @@ class QuizManager {
                     else if (session.score >= 2) embedColor = '#2196F3';
                 }
                 
+                // Create fresh GIF attachment to ensure restart
+                const gifAttachment = this.createGifAttachment();
+                
                 const embed = new EmbedBuilder()
                     .setColor(embedColor)
                     .setTitle(`⚔️ Question ${questionNum}/10`)
@@ -500,7 +618,17 @@ class QuizManager {
                     })
                     .setTimestamp();
                 
-                await message.edit({ embeds: [embed] });
+                // Keep GIF at the top during countdown
+                if (gifAttachment) {
+                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                }
+                
+                const updateData = { embeds: [embed] };
+                if (gifAttachment) {
+                    updateData.files = [gifAttachment];
+                }
+                
+                await message.edit(updateData);
                 
             } catch (error) {
                 this.clearTimeInterval(session.userId, session.guildId);
@@ -527,7 +655,9 @@ class QuizManager {
             session.questions[session.currentQuestion] = newQuestion;
             session.rerollsUsed++;
             
-            console.log(`✅ Rerolled question ${session.currentQuestion + 1} for user ${session.userId} (${session.rerollsUsed}/3)`);
+            console.log(`🎲 Rerolled question ${session.currentQuestion + 1} for user ${session.userId} (${session.rerollsUsed}/3)`);
+            console.log(`New Question: ${newQuestion.question}`);
+            console.log(`New Answer: ${newQuestion.answer}`);
             
             // Update session
             await this.saveQuizSession(session.userId, session.guildId, session);
@@ -573,10 +703,16 @@ class QuizManager {
             if (isCorrect) {
                 session.score++;
             }
+
+            // Enhanced answer logging
+            console.log(`\n🎯 Answer Received - Question ${session.currentQuestion + 1}`);
+            console.log(`User: ${session.userId} | ${isCorrect ? '✅ CORRECT' : '❌ INCORRECT'}`);
+            console.log(`Question: ${question.question}`);
+            console.log(`Selected: ${selectedAnswer}`);
+            console.log(`Correct:  ${question.answer}`);
+            console.log(`Score: ${session.score}/${session.currentQuestion + 1}\n`);
             
-            console.log(`Quiz Q${session.currentQuestion + 1}: ${isCorrect ? '✅' : '❌'} User ${session.userId} - "${selectedAnswer}" (Correct: "${question.answer}")`);
-            
-            // Show answer reveal in the same embed for 5 seconds
+            // Show answer reveal with fresh GIF
             await this.showAnswerReveal(buttonInteraction, session, isCorrect, selectedAnswer, question.answer);
             
             // Move to next question or end quiz
@@ -598,6 +734,9 @@ class QuizManager {
     async showAnswerReveal(interaction, session, isCorrect, selectedAnswer, correctAnswer) {
         try {
             const questionNum = session.currentQuestion + 1;
+            
+            // Create fresh GIF attachment for answer reveal
+            const gifAttachment = this.createGifAttachment();
             
             const embed = new EmbedBuilder()
                 .setColor(isCorrect ? '#00FF00' : '#FF0000')
@@ -630,7 +769,17 @@ class QuizManager {
                 .setFooter({ text: '⚠️ "Preparing the next ancient text..."' })
                 .setTimestamp();
 
-            await interaction.editReply({ embeds: [embed], components: [] });
+            // Keep GIF at the top for answer reveal
+            if (gifAttachment) {
+                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+            }
+
+            const updateData = { embeds: [embed], components: [] };
+            if (gifAttachment) {
+                updateData.files = [gifAttachment];
+            }
+
+            await interaction.editReply(updateData);
             
         } catch (error) {
             console.error('Error showing answer reveal:', error);
@@ -647,6 +796,9 @@ class QuizManager {
             else if (session.score >= 4) embedColor = '#2196F3';
             else if (session.score >= 2) embedColor = '#FFC107';
             else embedColor = '#FF5722';
+            
+            // Create fresh GIF attachment for continuation screen
+            const gifAttachment = this.createGifAttachment();
             
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
@@ -679,6 +831,11 @@ class QuizManager {
                 .setFooter({ text: '⚠️ 60 seconds to decide • No response = Quiz abandoned' })
                 .setTimestamp();
 
+            // Keep GIF at the top for continuation screen
+            if (gifAttachment) {
+                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+            }
+
             const buttons = [
                 new ButtonBuilder()
                     .setCustomId(`continue_${session.userId}`)
@@ -694,7 +851,12 @@ class QuizManager {
 
             const row = new ActionRowBuilder().addComponents(buttons);
             
-            const message = await interaction.followUp({ embeds: [embed], components: [row] });
+            const messageData = { embeds: [embed], components: [row] };
+            if (gifAttachment) {
+                messageData.files = [gifAttachment];
+            }
+            
+            const message = await interaction.followUp(messageData);
 
             const collector = message.createMessageComponentCollector({
                 time: 60000,
@@ -703,16 +865,26 @@ class QuizManager {
 
             collector.on('collect', async (buttonInteraction) => {
                 if (buttonInteraction.customId === `continue_${session.userId}`) {
-                    await buttonInteraction.update({
-                        embeds: [
-                            new EmbedBuilder()
-                                .setColor('#00FF00')
-                                .setTitle('⚔️ Onward!')
-                                .setDescription('**Loading next question...**')
-                                .setFooter({ text: 'Preparing question...' })
-                        ],
-                        components: []
-                    });
+                    // Create fresh GIF for loading screen
+                    const loadingGif = this.createGifAttachment();
+                    
+                    const loadingEmbed = new EmbedBuilder()
+                        .setColor('#00FF00')
+                        .setTitle('⚔️ Onward!')
+                        .setDescription('**Loading next question...**')
+                        .setFooter({ text: 'Preparing question...' });
+                    
+                    // Keep GIF at the top for loading screen
+                    if (loadingGif) {
+                        loadingEmbed.setThumbnail(`attachment://${loadingGif.name}`);
+                    }
+                    
+                    const updateData = { embeds: [loadingEmbed], components: [] };
+                    if (loadingGif) {
+                        updateData.files = [loadingGif];
+                    }
+                    
+                    await buttonInteraction.update(updateData);
                     
                     await this.saveQuizSession(session.userId, session.guildId, session);
                     
@@ -739,20 +911,32 @@ class QuizManager {
 
     async handleAbandon(interaction, session) {
         try {
-            await interaction.update({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor('#FF0000')
-                        .setTitle('🏳️ Quiz Abandoned')
-                        .setDescription(`**Quiz End**\n\nYou've decided to end your quiz here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quizzes.*`)
-                        .setFooter({ text: 'Return tomorrow for a new quiz!' })
-                        .setTimestamp()
-                ],
-                components: []
-            });
+            // Create fresh GIF for abandon screen
+            const gifAttachment = this.createGifAttachment();
+            
+            const embed = new EmbedBuilder()
+                .setColor('#FF0000')
+                .setTitle('🏳️ Quiz Abandoned')
+                .setDescription(`**Quiz End**\n\nYou've decided to end your quiz here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quizzes.*`)
+                .setFooter({ text: 'Return tomorrow for a new quiz!' })
+                .setTimestamp();
+            
+            // Keep GIF at the top for abandon screen
+            if (gifAttachment) {
+                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+            }
+            
+            const updateData = { embeds: [embed], components: [] };
+            if (gifAttachment) {
+                updateData.files = [gifAttachment];
+            }
+            
+            await interaction.update(updateData);
             
             // Clean up session
             await this.cleanupQuizSession(session.userId, session.guildId);
+            
+            console.log(`🏳️ Quiz abandoned by user ${session.userId} at question ${session.currentQuestion + 1}`);
             
         } catch (error) {
             console.error('Error handling abandon:', error);
@@ -761,6 +945,9 @@ class QuizManager {
 
     async handleTimeout(interaction, session, isContinuation = false) {
         try {
+            // Create fresh GIF for timeout screen
+            const gifAttachment = this.createGifAttachment();
+            
             if (!isContinuation) {
                 // Question timeout
                 const question = session.questions[session.currentQuestion];
@@ -771,7 +958,8 @@ class QuizManager {
                     isCorrect: false
                 });
                 
-                console.log(`Quiz Q${session.currentQuestion + 1}: ⏰ TIMEOUT User ${session.userId} - Correct: "${question.answer}"`);
+                console.log(`⏰ TIMEOUT - Question ${session.currentQuestion + 1} for user ${session.userId}`);
+                console.log(`Correct Answer: ${question.answer}`);
                 
                 // Show timeout message
                 const embed = new EmbedBuilder()
@@ -780,7 +968,17 @@ class QuizManager {
                     .setDescription(`**Correct Answer:** ${question.answer}`)
                     .setFooter({ text: 'Next question...' });
                 
-                await interaction.followUp({ embeds: [embed] });
+                // Keep GIF at the top for timeout message
+                if (gifAttachment) {
+                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                }
+                
+                const messageData = { embeds: [embed] };
+                if (gifAttachment) {
+                    messageData.files = [gifAttachment];
+                }
+                
+                await interaction.followUp(messageData);
                 
                 // Move to next question
                 session.currentQuestion++;
@@ -803,10 +1001,22 @@ class QuizManager {
                     .setFooter({ text: 'Return tomorrow for a new quiz!' })
                     .setTimestamp();
                 
-                await interaction.followUp({ embeds: [embed] });
+                // Keep GIF at the top for continuation timeout
+                if (gifAttachment) {
+                    embed.setThumbnail(`attachment://${gifAttachment.name}`);
+                }
+                
+                const messageData = { embeds: [embed] };
+                if (gifAttachment) {
+                    messageData.files = [gifAttachment];
+                }
+                
+                await interaction.followUp(messageData);
                 
                 // Clean up session
                 await this.cleanupQuizSession(session.userId, session.guildId);
+                
+                console.log(`⏰ Quiz abandoned due to inactivity - user ${session.userId}`);
             }
             
         } catch (error) {
@@ -818,6 +1028,11 @@ class QuizManager {
         try {
             const tier = session.score;
             const completionTime = Date.now() - session.startTime;
+            
+            console.log(`\n🏁 Quiz Completed - User ${session.userId}`);
+            console.log(`Final Score: ${session.score}/10`);
+            console.log(`Tier Achieved: ${tier}`);
+            console.log(`Completion Time: ${Math.floor(completionTime / 60000)}:${Math.floor((completionTime % 60000) / 1000).toString().padStart(2, '0')}`);
             
             // Save completion
             await this.saveCompletion(session.userId, session.guildId, session.score, tier);
@@ -921,6 +1136,9 @@ class QuizManager {
             const seconds = Math.floor((completionTime % 60000) / 1000);
             const timeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             
+            // Create fresh GIF for final results
+            const gifAttachment = this.createGifAttachment();
+            
             const embed = new EmbedBuilder()
                 .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
                 .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Quiz Complete!` : '📝 Quiz Complete')
@@ -954,7 +1172,17 @@ class QuizManager {
                 .setFooter({ text: `Next quiz tomorrow • Completed ${new Date().toLocaleTimeString()}` })
                 .setTimestamp();
             
-            await interaction.followUp({ embeds: [embed] });
+            // Keep GIF at the top for final results
+            if (gifAttachment) {
+                embed.setThumbnail(`attachment://${gifAttachment.name}`);
+            }
+            
+            const messageData = { embeds: [embed] };
+            if (gifAttachment) {
+                messageData.files = [gifAttachment];
+            }
+            
+            await interaction.followUp(messageData);
             
         } catch (error) {
             console.error('Error showing final results:', error);
@@ -967,6 +1195,9 @@ class QuizManager {
         
         // Get next reset time
         const nextReset = interaction.resetManager.getNextResetTime();
+        
+        // Create fresh GIF for already completed message
+        const gifAttachment = this.createGifAttachment();
         
         const embed = new EmbedBuilder()
             .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
@@ -992,7 +1223,17 @@ class QuizManager {
             .setFooter({ text: 'Return tomorrow for a new quiz!' })
             .setTimestamp();
         
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
+        // Keep GIF at the top for already completed message
+        if (gifAttachment) {
+            embed.setThumbnail(`attachment://${gifAttachment.name}`);
+        }
+        
+        const messageData = { embeds: [embed], ephemeral: true };
+        if (gifAttachment) {
+            messageData.files = [gifAttachment];
+        }
+        
+        return await interaction.reply(messageData);
     }
 
     createProgressBar(currentQuestion, answers) {
