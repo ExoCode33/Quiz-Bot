@@ -1145,21 +1145,18 @@ class QuizManager {
         
         for (let i = 0; i < total; i++) {
             if (i < answers.length) {
-                // Show the question number with result
-                const questionNumber = i + 1;
+                // Show just the result without numbers
                 if (answers[i].isCorrect) {
-                    bar += `${questionNumber}.✅ `;
+                    bar += '✅ ';
                 } else {
-                    bar += `${questionNumber}.❌ `;
+                    bar += '❌ ';
                 }
             } else if (i === currentQuestion) {
                 // Current active question
-                const questionNumber = i + 1;
-                bar += `${questionNumber}.⏹️ `;
+                bar += '⏹️ ';
             } else {
                 // Future questions
-                const questionNumber = i + 1;
-                bar += `${questionNumber}.⬛ `;
+                bar += '⬛ ';
             }
         }
         
