@@ -953,7 +953,82 @@ class QuizManager {
     }
 }
 
-module.exports = QuizManager; % 60000) / 1000);
+    async handleTimeout(interaction, session, isContinuation = false) {
+        try {
+            if (!isContinuation) {
+                // Question timeout
+                const question = session.questions[session.currentQuestion];
+                session.answers.push({
+                    questionIndex: session.currentQuestion,
+                    selectedAnswer: 'No answer (timeout)',
+                    correctAnswer: question.answer,
+                    isCorrect: false
+                });
+                
+                console.log(`Quiz Q${session.currentQuestion + 1}: ⏰ TIMEOUT User ${session.userId} - Correct: "${question.answer}"`);
+                
+                // Show timeout message
+                const embed = new EmbedBuilder()
+                    .setColor('#FF0000')
+                    .setTitle('⏰ Time\'s Up!')
+                    .setDescription(`**Correct Answer:** ${question.answer}`)
+                    .setFooter({ text: 'Next question...' });
+                
+                await interaction.followUp({ embeds: [embed] });
+                
+                // Move to next question
+                session.currentQuestion++;
+                
+                if (session.currentQuestion >= 10) {
+                    setTimeout(async () => {
+                        await this.endQuiz(interaction, session);
+                    }, 3000);
+                } else {
+                    setTimeout(async () => {
+                        await this.askContinuation(interaction, session);
+                    }, 3000);
+                }
+            } else {
+                // Continuation timeout
+                const embed = new EmbedBuilder()
+                    .setColor('#808080')
+                    .setTitle('⏰ Quest Abandoned')
+                    .setDescription(`**No response received**\n\nYour quest ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
+                    .setFooter({ text: 'Return tomorrow for a new challenge!' })
+                    .setTimestamp();
+                
+                await interaction.followUp({ embeds: [embed] });
+                
+                // Clean up session
+                await this.cleanupQuizSession(session.userId, session.guildId);
+            }
+            
+        } catch (error) {
+            console.error('Error handling timeout:', error);
+        }
+    }
+
+    async handleAbandon(interaction, session) {
+        try {
+            await interaction.update({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor('#FF0000')
+                        .setTitle('🏳️ Quest Abandoned')
+                        .setDescription(`**Journey End**\n\nYou've decided to end your challenge here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
+                        .setFooter({ text: 'Return tomorrow for a new challenge!' })
+                        .setTimestamp()
+                ],
+                components: []
+            });
+            
+            // Clean up session
+            await this.cleanupQuizSession(session.userId, session.guildId);
+            
+        } catch (error) {
+            console.error('Error handling abandon:', error);
+        }
+    }
             const timeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             
             const embed = new EmbedBuilder()
