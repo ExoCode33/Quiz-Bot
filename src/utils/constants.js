@@ -1,261 +1,300 @@
-const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = require('./constants');
+// Tier colors for embeds
+const TIER_COLORS = {
+    1: '#FFFFFF',   // White
+    2: '#4CAF50',   // Green
+    3: '#2196F3',   // Blue
+    4: '#9C27B0',   // Purple
+    5: '#FFC107',   // Amber
+    6: '#FF9800',   // Orange
+    7: '#FF5722',   // Deep Orange
+    8: '#F44336',   // Red
+    9: '#E91E63',   // Pink
+    10: '#FFD700'   // Gold
+};
 
-class QuestionLoader {
-    constructor() {
-        this.apiEndpoints = [
-            'https://opentdb.com/api.php?amount=5&category=31&type=multiple',
-            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5'
-        ];
-    }
+// Tier names
+const TIER_NAMES = {
+    1: 'Bronze Otaku',
+    2: 'Silver Fan',
+    3: 'Gold Enthusiast',
+    4: 'Platinum Weeb',
+    5: 'Diamond Expert',
+    6: 'Master Otaku',
+    7: 'Legendary Weeb',
+    8: 'Mythical Expert',
+    9: 'Divine Master',
+    10: 'Ultimate Otaku'
+};
 
-    async loadQuestions(avoidQuestions = new Set()) {
-        try {
-            console.log('🔄 Loading anime quiz questions...');
-            
-            const questions = [];
-            const usedQuestions = new Set();
-            
-            // Try to get questions from APIs
-            const apiQuestions = await this.fetchFromAPIs(avoidQuestions);
-            
-            // Add valid API questions
-            for (const question of apiQuestions) {
-                if (questions.length >= 10) break;
-                
-                const questionKey = question.question.toLowerCase().trim();
-                if (!usedQuestions.has(questionKey) && !avoidQuestions.has(questionKey)) {
-                    questions.push(question);
-                    usedQuestions.add(questionKey);
-                }
-            }
-            
-            // Fill remaining slots with fallback questions
-            if (questions.length < 10) {
-                console.log(`🛡️ Using fallback questions to fill remaining ${10 - questions.length} slots`);
-                
-                const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, usedQuestions);
-                
-                for (const question of fallbackQuestions) {
-                    if (questions.length >= 10) break;
-                    
-                    const questionKey = question.question.toLowerCase().trim();
-                    if (!usedQuestions.has(questionKey)) {
-                        questions.push(question);
-                        usedQuestions.add(questionKey);
-                    }
-                }
-            }
-            
-            // Shuffle the final question order
-            this.shuffleArray(questions);
-            
-            console.log(`✅ Loaded ${questions.length} questions (${apiQuestions.length} from API, ${questions.length - apiQuestions.length} fallback)`);
-            
-            return questions;
-            
-        } catch (error) {
-            console.error('❌ Error loading questions:', error);
-            
-            // Return fallback questions only
-            return this.getFallbackQuestions(avoidQuestions, new Set());
+// Keywords that indicate anime content
+const ANIME_KEYWORDS = [
+    'anime', 'manga', 'character', 'protagonist', 'antagonist',
+    'power', 'ability', 'technique', 'jutsu', 'devil fruit',
+    'titan', 'demon', 'soul reaper', 'ninja', 'pirate',
+    'hero', 'villain', 'quirk', 'stand', 'magic',
+    'guild', 'crew', 'team', 'squad', 'organization',
+    'sensei', 'senpai', 'kouhai', 'chan', 'kun', 'sama',
+    'dojo', 'tournament', 'battle', 'fight', 'training'
+];
+
+// Keywords to avoid (production/technical questions)
+const BAD_KEYWORDS = [
+    'studio that animated', 'animation studio', 'produced by', 'directed by',
+    'composed by', 'music by', 'soundtrack by', 'opening theme', 'ending theme',
+    'manga author', 'mangaka', 'light novel author', 'creator of',
+    'published by', 'serialized in', 'magazine', 'publisher',
+    'network that aired', 'broadcast on', 'streaming platform',
+    'budget', 'box office', 'sales figures', 'episode count of',
+    'animation technique', 'art style', 'animation quality'
+];
+
+// Known anime titles for content validation
+const ANIME_TITLES = [
+    'naruto', 'one piece', 'bleach', 'dragon ball', 'attack on titan',
+    'my hero academia', 'demon slayer', 'jujutsu kaisen', 'hunter x hunter',
+    'fullmetal alchemist', 'death note', 'code geass', 'evangelion',
+    'cowboy bebop', 'akira', 'spirited away', 'totoro', 'princess mononoke',
+    'sailor moon', 'pokemon', 'digimon', 'yu-gi-oh', 'one punch man',
+    'mob psycho', 'tokyo ghoul', 'parasyte', 'berserk', 'trigun',
+    'fairy tail', 'black clover', 'fire force', 'chainsaw man',
+    'assassination classroom', 'haikyuu', 'kuroko', 'food wars',
+    'seven deadly sins', 'overlord', 're:zero', 'konosuba',
+    'shield hero', 'slime', 'goblin slayer', 'made in abyss',
+    'violet evergarden', 'your name', 'weathering with you', 'kimetsu no yaiba',
+    'shingeki no kyojin', 'boku no hero academia', 'jojo', 'dragonball'
+];
+
+// Fallback questions organized by difficulty
+const FALLBACK_QUESTIONS = {
+    Easy: [
+        {
+            question: "Who is the main protagonist of One Piece?",
+            options: ["Monkey D. Luffy", "Roronoa Zoro", "Nami", "Sanji"],
+            answer: "Monkey D. Luffy",
+            difficulty: "Easy"
+        },
+        {
+            question: "What is Luffy's Devil Fruit power?",
+            options: ["Rubber abilities", "Fire powers", "Ice powers", "Lightning powers"],
+            answer: "Rubber abilities",
+            difficulty: "Easy"
+        },
+        {
+            question: "In Naruto, what village is Naruto from?",
+            options: ["Hidden Leaf Village", "Hidden Sand Village", "Hidden Mist Village", "Hidden Cloud Village"],
+            answer: "Hidden Leaf Village",
+            difficulty: "Easy"
+        },
+        {
+            question: "What is the name of Luffy's pirate crew?",
+            options: ["Straw Hat Pirates", "Red Hair Pirates", "Whitebeard Pirates", "Heart Pirates"],
+            answer: "Straw Hat Pirates",
+            difficulty: "Easy"
+        },
+        {
+            question: "In My Hero Academia, what is Deku's real name?",
+            options: ["Izuku Midoriya", "Katsuki Bakugo", "Shoto Todoroki", "Tenya Iida"],
+            answer: "Izuku Midoriya",
+            difficulty: "Easy"
+        },
+        {
+            question: "What anime features a notebook that can kill people?",
+            options: ["Death Note", "Code Geass", "Psycho-Pass", "Future Diary"],
+            answer: "Death Note",
+            difficulty: "Easy"
+        },
+        {
+            question: "In Dragon Ball Z, what is Goku's Saiyan name?",
+            options: ["Kakarot", "Vegeta", "Raditz", "Bardock"],
+            answer: "Kakarot",
+            difficulty: "Easy"
+        },
+        {
+            question: "What is the name of the main character in Bleach?",
+            options: ["Ichigo Kurosaki", "Rukia Kuchiki", "Uryu Ishida", "Chad Sado"],
+            answer: "Ichigo Kurosaki",
+            difficulty: "Easy"
+        },
+        {
+            question: "In Attack on Titan, what do titans primarily eat?",
+            options: ["Humans", "Animals", "Plants", "Nothing"],
+            answer: "Humans",
+            difficulty: "Easy"
+        },
+        {
+            question: "In Demon Slayer, what breathing technique does Tanjiro use?",
+            options: ["Water Breathing", "Fire Breathing", "Wind Breathing", "Stone Breathing"],
+            answer: "Water Breathing",
+            difficulty: "Easy"
+        },
+        {
+            question: "What anime features giant humanoid creatures called Titans?",
+            options: ["Attack on Titan", "Evangelion", "Code Geass", "Gundam"],
+            answer: "Attack on Titan",
+            difficulty: "Easy"
+        },
+        {
+            question: "In which anime do characters have 'Quirks'?",
+            options: ["My Hero Academia", "Naruto", "One Piece", "Bleach"],
+            answer: "My Hero Academia",
+            difficulty: "Easy"
         }
-    }
-
-    async fetchFromAPIs(avoidQuestions) {
-        const allQuestions = [];
-        
-        for (const apiUrl of this.apiEndpoints) {
-            try {
-                console.log(`📡 Fetching from API: ${this.getAPIName(apiUrl)}`);
-                
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-                
-                const response = await fetch(apiUrl, {
-                    method: 'GET',
-                    headers: {
-                        'User-Agent': 'AnimeQuizBot/1.0',
-                        'Accept': 'application/json'
-                    },
-                    signal: controller.signal
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    console.warn(`⚠️ API ${this.getAPIName(apiUrl)} returned status ${response.status}`);
-                    continue;
-                }
-                
-                const data = await response.json();
-                const questions = this.parseAPIResponse(data, apiUrl);
-                
-                // Filter and validate questions
-                const validQuestions = questions.filter(q => this.isValidQuestion(q, avoidQuestions));
-                
-                allQuestions.push(...validQuestions);
-                
-                console.log(`✅ Got ${validQuestions.length} valid questions from ${this.getAPIName(apiUrl)}`);
-                
-            } catch (error) {
-                console.warn(`⚠️ API ${this.getAPIName(apiUrl)} failed: ${error.message}`);
-            }
+    ],
+    Medium: [
+        {
+            question: "What is the name of the sea where most of One Piece takes place?",
+            options: ["Grand Line", "East Blue", "West Blue", "Red Line"],
+            answer: "Grand Line",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Attack on Titan, what is Eren's Titan form called?",
+            options: ["Attack Titan", "Colossal Titan", "Female Titan", "Beast Titan"],
+            answer: "Attack Titan",
+            difficulty: "Medium"
+        },
+        {
+            question: "Who is known as 'Humanity's Strongest Soldier' in Attack on Titan?",
+            options: ["Levi Ackerman", "Erwin Smith", "Mikasa Ackerman", "Eren Yeager"],
+            answer: "Levi Ackerman",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Demon Slayer, what is Tanjiro's family name?",
+            options: ["Kamado", "Hashibira", "Agatsuma", "Shinazugawa"],
+            answer: "Kamado",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Fullmetal Alchemist, what do the Elric brothers seek?",
+            options: ["Philosopher's Stone", "Dragon Balls", "Death Note", "Holy Grail"],
+            answer: "Philosopher's Stone",
+            difficulty: "Medium"
+        },
+        {
+            question: "In One Punch Man, what is Saitama's hero rank initially?",
+            options: ["Class C", "Class B", "Class A", "Class S"],
+            answer: "Class C",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Jujutsu Kaisen, what grade is Yuji Itadori initially classified as?",
+            options: ["Grade 4", "Grade 3", "Grade 2", "Grade 1"],
+            answer: "Grade 4",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Tokyo Ghoul, what are the creatures that eat humans called?",
+            options: ["Ghouls", "Titans", "Demons", "Hollows"],
+            answer: "Ghouls",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Hunter x Hunter, what is the name of the hunter exam arc?",
+            options: ["Hunter Exam", "Yorknew City", "Greed Island", "Chimera Ant"],
+            answer: "Hunter Exam",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Seven Deadly Sins, what is Meliodas' sin?",
+            options: ["Wrath", "Pride", "Greed", "Envy"],
+            answer: "Wrath",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Fire Force, what are the fire-powered beings called?",
+            options: ["Infernals", "Pyromancers", "Fire Demons", "Flame Spirits"],
+            answer: "Infernals",
+            difficulty: "Medium"
+        },
+        {
+            question: "In Black Clover, what is Asta's main trait?",
+            options: ["No magic", "Fire magic", "Wind magic", "Water magic"],
+            answer: "No magic",
+            difficulty: "Medium"
         }
-        
-        return allQuestions;
-    }
-
-    parseAPIResponse(data, apiUrl) {
-        const questions = [];
-        
-        try {
-            if (apiUrl.includes('opentdb.com')) {
-                // OpenTDB format
-                if (data.results && Array.isArray(data.results)) {
-                    for (const item of data.results) {
-                        const question = {
-                            question: this.cleanText(item.question),
-                            answer: this.cleanText(item.correct_answer),
-                            options: [...item.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(item.correct_answer)],
-                            difficulty: item.difficulty || 'Medium',
-                            source: 'OpenTDB'
-                        };
-                        
-                        // Shuffle options
-                        this.shuffleArray(question.options);
-                        questions.push(question);
-                    }
-                }
-            } else if (apiUrl.includes('trivia-api.com')) {
-                // The Trivia API format
-                if (Array.isArray(data)) {
-                    for (const item of data) {
-                        const question = {
-                            question: this.cleanText(item.question.text),
-                            answer: this.cleanText(item.correctAnswer),
-                            options: [...item.incorrectAnswers.map(opt => this.cleanText(opt)), this.cleanText(item.correctAnswer)],
-                            difficulty: item.difficulty || 'medium',
-                            source: 'TriviaAPI'
-                        };
-                        
-                        // Shuffle options
-                        this.shuffleArray(question.options);
-                        questions.push(question);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('❌ Error parsing API response:', error);
+    ],
+    Hard: [
+        {
+            question: "In One Piece, where do the Straw Hats first meet Brook?",
+            options: ["Thriller Bark", "Sabaody Archipelago", "Water 7", "Enies Lobby"],
+            answer: "Thriller Bark",
+            difficulty: "Hard"
+        },
+        {
+            question: "What is Roy Mustang's title in Fullmetal Alchemist?",
+            options: ["Flame Alchemist", "Steel Alchemist", "State Alchemist", "Fire Colonel"],
+            answer: "Flame Alchemist",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Hunter x Hunter, what is Gon's father's name?",
+            options: ["Ging Freecss", "Silva Zoldyck", "Isaac Netero", "Leorio Paradinight"],
+            answer: "Ging Freecss",
+            difficulty: "Hard"
+        },
+        {
+            question: "What is the name of the school in Kill la Kill?",
+            options: ["Honnouji Academy", "Kiryuin Academy", "Satsuki Academy", "Ryuko Academy"],
+            answer: "Honnouji Academy",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Jojo's Bizarre Adventure, what is Dio's stand called?",
+            options: ["The World", "Star Platinum", "Crazy Diamond", "Gold Experience"],
+            answer: "The World",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Code Geass, what is Lelouch's Geass power?",
+            options: ["Absolute Obedience", "Mind Reading", "Time Stop", "Precognition"],
+            answer: "Absolute Obedience",
+            difficulty: "Hard"
+        },
+        {
+            question: "What is the name of Light's Shinigami in Death Note?",
+            options: ["Ryuk", "Rem", "Misa", "Near"],
+            answer: "Ryuk",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Evangelion, what is the name of Shinji's father?",
+            options: ["Gendo Ikari", "Ryoji Kaji", "Kozo Fuyutsuki", "Shigeru Aoba"],
+            answer: "Gendo Ikari",
+            difficulty: "Hard"
+        },
+        {
+            question: "What is the real name of the character known as 'L' in Death Note?",
+            options: ["L Lawliet", "Near", "Mello", "Watari"],
+            answer: "L Lawliet",
+            difficulty: "Hard"
+        },
+        {
+            question: "In One Piece, what are the names of the three ancient weapons?",
+            options: ["Pluton, Poseidon, Uranus", "Zeus, Hera, Poseidon", "Ares, Athena, Apollo", "Thor, Odin, Loki"],
+            answer: "Pluton, Poseidon, Uranus",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Steins;Gate, what is the name of the time machine?",
+            options: ["Phone Microwave", "Time Machine", "D-Mail", "SERN"],
+            answer: "Phone Microwave",
+            difficulty: "Hard"
+        },
+        {
+            question: "In Berserk, what is the name of Guts' sword?",
+            options: ["Dragon Slayer", "Iron Reaver", "Demon Blade", "God Hand"],
+            answer: "Dragon Slayer",
+            difficulty: "Hard"
         }
-        
-        return questions;
-    }
+    ]
+};
 
-    isValidQuestion(question, avoidQuestions) {
-        try {
-            // Basic validation
-            if (!question.question || !question.answer || !question.options || question.options.length < 2) {
-                return false;
-            }
-            
-            // Check if answer is in options
-            if (!question.options.includes(question.answer)) {
-                return false;
-            }
-            
-            const questionLower = question.question.toLowerCase();
-            const questionKey = questionLower.trim();
-            
-            // Check against avoid list
-            if (avoidQuestions.has(questionKey)) {
-                return false;
-            }
-            
-            // Filter out bad keywords (production/technical questions)
-            const hasBadKeyword = BAD_KEYWORDS.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            );
-            
-            if (hasBadKeyword) {
-                // Check if it has allowed patterns (like voice actor questions)
-                const hasAllowedPattern = [
-                    'voice.*actor', 'voiced by', 'seiyuu', 'dub.*actor',
-                    'year.*air', 'when.*air', 'what year.*release'
-                ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
-                
-                if (!hasAllowedPattern) {
-                    return false;
-                }
-            }
-            
-            // Require anime content
-            const hasAnimeContent = ANIME_KEYWORDS.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            ) || ANIME_TITLES.some(title => 
-                questionLower.includes(title.toLowerCase())
-            );
-            
-            if (!hasAnimeContent) {
-                return false;
-            }
-            
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Error validating question:', error);
-            return false;
-        }
-    }
-
-    getFallbackQuestions(avoidQuestions, usedQuestions) {
-        const allFallbacks = [
-            ...FALLBACK_QUESTIONS.Easy,
-            ...FALLBACK_QUESTIONS.Medium,
-            ...FALLBACK_QUESTIONS.Hard
-        ];
-        
-        // Filter out avoided and already used questions
-        const availableFallbacks = allFallbacks.filter(question => {
-            const questionKey = question.question.toLowerCase().trim();
-            return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
-        });
-        
-        if (availableFallbacks.length === 0) {
-            console.warn('⚠️ All fallback questions have been used, resetting...');
-            return allFallbacks.slice(0, 10);
-        }
-        
-        // Shuffle and return up to 10 questions
-        this.shuffleArray(availableFallbacks);
-        return availableFallbacks.slice(0, 10);
-    }
-
-    cleanText(text) {
-        if (!text) return '';
-        
-        return text
-            .replace(/&quot;/g, '"')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&#x([0-9A-Fa-f]+);/g, (m, h) => String.fromCharCode(parseInt(h, 16)))
-            .replace(/&#(\d+);/g, (m, d) => String.fromCharCode(parseInt(d, 10)))
-            .trim();
-    }
-
-    shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
-    }
-
-    getAPIName(url) {
-        if (url.includes('opentdb.com')) return 'OpenTDB';
-        if (url.includes('trivia-api.com')) return 'TriviaAPI';
-        return 'Unknown';
-    }
-}
-
-module.exports = QuestionLoader;
+module.exports = {
+    TIER_COLORS,
+    TIER_NAMES,
+    ANIME_KEYWORDS,
+    BAD_KEYWORDS,
+    ANIME_TITLES,
+    FALLBACK_QUESTIONS
+};
