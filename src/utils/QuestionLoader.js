@@ -49,27 +49,9 @@ class QuestionLoader {
             // Shuffle the final question order
             this.shuffleArray(questions);
             
-            // Enhanced logging with Nico Robin theme
-            console.log(`\n🌸 ═══════════════════════════════════════════════════════════════════════════════`);
-            console.log(`📚 QUESTION LOADER - ANCIENT KNOWLEDGE ACQUISITION COMPLETE`);
-            console.log(`🔍 Target: ${targetCount} questions | Loaded: ${questions.length} questions`);
-            console.log(`📡 API Sources: ${apiQuestions.length} | 🛡️ Fallback: ${questions.length - apiQuestions.length}`);
-            console.log(`🌸 ═══════════════════════════════════════════════════════════════════════════════\n`);
-            
-            // Log each question with green answers
-            questions.forEach((question, index) => {
-                console.log(`📜 Question ${index + 1}/${questions.length}:`);
-                console.log(`   Text: ${question.question}`);
-                console.log(`   \x1b[32mCorrect Answer: ${question.answer}\x1b[0m`); // Green color
-                console.log(`   All Options: [${question.options.join(', ')}]`);
-                console.log(`   Difficulty: ${question.difficulty || 'Medium'}`);
-                console.log(`   Source: ${question.source || 'Fallback Questions'}`);
-                console.log(''); // Empty line
-            });
-            
-            console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════`);
             console.log(`✅ Loaded ${questions.length} questions (${apiQuestions.length} from API, ${questions.length - apiQuestions.length} fallback)`);
-            console.log(`🏺 ═══════════════════════════════════════════════════════════════════════════════\n`);
+            
+            return questions;
             
             return questions;
             
