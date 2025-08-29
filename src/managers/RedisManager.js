@@ -53,147 +53,7 @@ class RedisManager {
             await this.client.ping();
             
         } catch (error) {
-            console.error('❌ Redis: Error caching guild leaderboard:', error);
-            return false;
-        }
-    }
-
-    async getCachedGuildLeaderboard(guildId) {
-        if (!this.connected) return null;
-        
-        try {
-            const key = this.key(`leaderboard:${guildId}:${this.getCurrentDate()}`);
-            const data = await this.client.get(key);
-            
-            if (data) {
-                return JSON.parse(data);
-            }
-            
-            return null;
-            
-        } catch (error) {
-            console.error('❌ Redis: Error getting cached guild leaderboard:', error);
-            return null;
-        }
-    }
-
-    // Daily reset methods
-    async markResetCompleted(date) {
-        if (!this.connected) return false;
-        
-        try {
-            const key = this.key(`reset:${date}`);
-            
-            // Set with 48 hours expiry
-            await this.client.setEx(key, 48 * 60 * 60, 'completed');
-            
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Redis: Error marking reset completed:', error);
-            return false;
-        }
-    }
-
-    async wasResetCompleted(date) {
-        if (!this.connected) return false;
-        
-        try {
-            const key = this.key(`reset:${date}`);
-            const result = await this.client.get(key);
-            
-            return result === 'completed';
-            
-        } catch (error) {
-            console.error('❌ Redis: Error checking reset status:', error);
-            return false;
-        }
-    }
-
-    // Cleanup methods
-    async cleanupExpiredKeys() {
-        if (!this.connected) return 0;
-        
-        try {
-            // Get all keys with our prefix
-            const keys = await this.client.keys(`${this.prefix}*`);
-            let deletedCount = 0;
-            
-            // Delete keys in batches
-            const batchSize = 100;
-            for (let i = 0; i < keys.length; i += batchSize) {
-                const batch = keys.slice(i, i + batchSize);
-                
-                for (const key of batch) {
-                    const ttl = await this.client.ttl(key);
-                    
-                    // If key has expired or is about to expire in 1 minute
-                    if (ttl <= 60) {
-                        await this.client.del(key);
-                        deletedCount++;
-                    }
-                }
-            }
-            
-            if (deletedCount > 0) {
-                console.log(`🧹 Redis: Cleaned up ${deletedCount} expired keys`);
-            }
-            
-            return deletedCount;
-            
-        } catch (error) {
-            console.error('❌ Redis: Error during cleanup:', error);
-            return 0;
-        }
-    }
-
-    // Utility methods
-    getCurrentDate() {
-        const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
-        const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
-        
-        const now = new Date();
-        const edtOffset = this.isEDT(now) ? -4 : -5;
-        const edtTime = new Date(now.getTime() + (edtOffset * 60 * 60 * 1000));
-        
-        const currentTimeInMinutes = (edtTime.getHours() * 60) + edtTime.getMinutes();
-        const resetTimeInMinutes = (resetHour * 60) + resetMinute;
-        
-        // If it's before reset time, use previous day
-        if (currentTimeInMinutes < resetTimeInMinutes) {
-            edtTime.setDate(edtTime.getDate() - 1);
-        }
-        
-        return edtTime.toISOString().split('T')[0];
-    }
-
-    isEDT(date) {
-        const year = date.getFullYear();
-        
-        // Second Sunday in March at 2:00 AM
-        const marchSecondSunday = new Date(year, 2, 1);
-        marchSecondSunday.setDate(1 + (14 - marchSecondSunday.getDay()) % 7);
-        marchSecondSunday.setDate(marchSecondSunday.getDate() + 7);
-        marchSecondSunday.setHours(2, 0, 0, 0);
-        
-        // First Sunday in November at 2:00 AM
-        const novemberFirstSunday = new Date(year, 10, 1);
-        novemberFirstSunday.setDate(1 + (7 - novemberFirstSunday.getDay()) % 7);
-        novemberFirstSunday.setHours(2, 0, 0, 0);
-        
-        return date >= marchSecondSunday && date < novemberFirstSunday;
-    }
-
-    async disconnect() {
-        if (this.client) {
-            await this.client.quit();
-            this.connected = false;
-            console.log('📡 Redis connection closed');
-        }
-    }
-}
-
-module.exports = RedisManager;console.error('❌ Redis connection failed:', error);
+            console.error('❌ Redis connection failed:', error);
             throw error;
         }
     }
@@ -404,3 +264,144 @@ module.exports = RedisManager;console.error('❌ Redis connection failed:', erro
             return true;
             
         } catch (error) {
+            console.error('❌ Redis: Error caching guild leaderboard:', error);
+            return false;
+        }
+    }
+
+    async getCachedGuildLeaderboard(guildId) {
+        if (!this.connected) return null;
+        
+        try {
+            const key = this.key(`leaderboard:${guildId}:${this.getCurrentDate()}`);
+            const data = await this.client.get(key);
+            
+            if (data) {
+                return JSON.parse(data);
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting cached guild leaderboard:', error);
+            return null;
+        }
+    }
+
+    // Daily reset methods
+    async markResetCompleted(date) {
+        if (!this.connected) return false;
+        
+        try {
+            const key = this.key(`reset:${date}`);
+            
+            // Set with 48 hours expiry
+            await this.client.setEx(key, 48 * 60 * 60, 'completed');
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error marking reset completed:', error);
+            return false;
+        }
+    }
+
+    async wasResetCompleted(date) {
+        if (!this.connected) return false;
+        
+        try {
+            const key = this.key(`reset:${date}`);
+            const result = await this.client.get(key);
+            
+            return result === 'completed';
+            
+        } catch (error) {
+            console.error('❌ Redis: Error checking reset status:', error);
+            return false;
+        }
+    }
+
+    // Cleanup methods
+    async cleanupExpiredKeys() {
+        if (!this.connected) return 0;
+        
+        try {
+            // Get all keys with our prefix
+            const keys = await this.client.keys(`${this.prefix}*`);
+            let deletedCount = 0;
+            
+            // Delete keys in batches
+            const batchSize = 100;
+            for (let i = 0; i < keys.length; i += batchSize) {
+                const batch = keys.slice(i, i + batchSize);
+                
+                for (const key of batch) {
+                    const ttl = await this.client.ttl(key);
+                    
+                    // If key has expired or is about to expire in 1 minute
+                    if (ttl <= 60) {
+                        await this.client.del(key);
+                        deletedCount++;
+                    }
+                }
+            }
+            
+            if (deletedCount > 0) {
+                console.log(`🧹 Redis: Cleaned up ${deletedCount} expired keys`);
+            }
+            
+            return deletedCount;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error during cleanup:', error);
+            return 0;
+        }
+    }
+
+    // Utility methods
+    getCurrentDate() {
+        const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
+        const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
+        
+        const now = new Date();
+        const edtOffset = this.isEDT(now) ? -4 : -5;
+        const edtTime = new Date(now.getTime() + (edtOffset * 60 * 60 * 1000));
+        
+        const currentTimeInMinutes = (edtTime.getHours() * 60) + edtTime.getMinutes();
+        const resetTimeInMinutes = (resetHour * 60) + resetMinute;
+        
+        // If it's before reset time, use previous day
+        if (currentTimeInMinutes < resetTimeInMinutes) {
+            edtTime.setDate(edtTime.getDate() - 1);
+        }
+        
+        return edtTime.toISOString().split('T')[0];
+    }
+
+    isEDT(date) {
+        const year = date.getFullYear();
+        
+        // Second Sunday in March at 2:00 AM
+        const marchSecondSunday = new Date(year, 2, 1);
+        marchSecondSunday.setDate(1 + (14 - marchSecondSunday.getDay()) % 7);
+        marchSecondSunday.setDate(marchSecondSunday.getDate() + 7);
+        marchSecondSunday.setHours(2, 0, 0, 0);
+        
+        // First Sunday in November at 2:00 AM
+        const novemberFirstSunday = new Date(year, 10, 1);
+        novemberFirstSunday.setDate(1 + (7 - novemberFirstSunday.getDay()) % 7);
+        novemberFirstSunday.setHours(2, 0, 0, 0);
+        
+        return date >= marchSecondSunday && date < novemberFirstSunday;
+    }
+
+    async disconnect() {
+        if (this.client) {
+            await this.client.quit();
+            this.connected = false;
+            console.log('📡 Redis connection closed');
+        }
+    }
+}
+
+module.exports = RedisManager;
