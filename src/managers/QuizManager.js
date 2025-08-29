@@ -49,7 +49,7 @@ class QuizManager {
             // Check if already has active quiz
             if (this.hasActiveQuiz(userId, guildId)) {
                 return await interaction.editReply({
-                    content: '❌ **Active Adventure Detected**\n\nYou already have an active Grand Line quest. Complete your current journey first, brave pirate!',
+                    content: '❌ **Active Quest Detected**\n\nYou already have an active challenge. Complete it first!',
                     components: []
                 });
             }
@@ -58,7 +58,7 @@ class QuizManager {
             const questions = await this.loadQuestions(userId, guildId);
             if (!questions || questions.length < 10) {
                 return await interaction.editReply({
-                    content: '❌ **Failed to Chart Course**\n\nUnable to prepare your Grand Line challenges. The seas are rough today - please try again later, pirate!',
+                    content: '❌ **Failed to Load Questions**\n\nUnable to prepare your challenge. Please try again later!',
                     components: []
                 });
             }
@@ -84,7 +84,7 @@ class QuizManager {
         } catch (error) {
             console.error('Error starting quiz:', error);
             await interaction.editReply({
-                content: '❌ **Navigation Error**\n\nThe Grand Line currents are unstable. Please try setting sail again, pirate!',
+                content: '❌ **Error**\n\nSomething went wrong. Please try again!',
                 components: []
             });
         }
@@ -221,7 +221,6 @@ class QuizManager {
             return true;
         }
         
-        // For Redis, we'll check in the async methods
         return false;
     }
 
@@ -234,10 +233,10 @@ class QuizManager {
             session.timeRemaining = parseInt(process.env.QUESTION_TIME_LIMIT) || 20;
             
             // Dynamic color based on progress
-            let embedColor = '#4A90E2'; // Default blue
-            if (session.score >= 7) embedColor = '#FF9800'; // Orange for high scores
-            else if (session.score >= 4) embedColor = '#9C27B0'; // Purple for medium scores
-            else if (session.score >= 2) embedColor = '#2196F3'; // Blue for low scores
+            let embedColor = '#4A90E2';
+            if (session.score >= 7) embedColor = '#FF9800';
+            else if (session.score >= 4) embedColor = '#9C27B0';
+            else if (session.score >= 2) embedColor = '#2196F3';
             
             // Create question embed
             const embed = new EmbedBuilder()
@@ -276,7 +275,7 @@ class QuizManager {
                 })
                 .setTimestamp();
 
-            // Create answer buttons with better styling
+            // Create answer buttons
             const buttonEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'];
             const buttons = question.options.map((option, index) => 
                 new ButtonBuilder()
@@ -582,8 +581,8 @@ class QuizManager {
                     new EmbedBuilder()
                         .setColor('#FF0000')
                         .setTitle('🏳️ Quest Abandoned')
-                        .setDescription(`**Journey End** 🏴‍☠️\n\nYou've decided to end your Grand Line adventure here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} battles won\n\nNo tier role will be granted for incomplete journeys.\n\n*Return tomorrow for a fresh adventure, pirate!*`)
-                        .setFooter({ text: 'The Grand Line will remember your courage' })
+                        .setDescription(`**Journey End**\n\nYou've decided to end your challenge here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
+                        .setFooter({ text: 'Return tomorrow for a new challenge!' })
                         .setTimestamp()
                 ],
                 components: []
@@ -614,9 +613,9 @@ class QuizManager {
                 // Show timeout message
                 const embed = new EmbedBuilder()
                     .setColor('#FF0000')
-                    .setTitle('⏰ Time\'s Up, Pirate!')
-                    .setDescription(`**The seas have claimed your chance!** 🌊\n\n**Correct Answer:** ${question.answer}\n\n*The Grand Line is unforgiving to those who hesitate...*`)
-                    .setFooter({ text: 'Preparing next challenge...' });
+                    .setTitle('⏰ Time\'s Up!')
+                    .setDescription(`**Correct Answer:** ${question.answer}`)
+                    .setFooter({ text: 'Next question...' });
                 
                 await interaction.followUp({ embeds: [embed] });
                 
@@ -636,9 +635,9 @@ class QuizManager {
                 // Continuation timeout
                 const embed = new EmbedBuilder()
                     .setColor('#808080')
-                    .setTitle('⏰ Journey Abandoned - No Response')
-                    .setDescription(`**The seas grew quiet...** 🌊\n\nYour Grand Line adventure ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} battles won\n\nNo tier role will be granted for incomplete journeys.\n\n*Return tomorrow for a fresh adventure, pirate!*`)
-                    .setFooter({ text: 'The Grand Line remembers those who sail its waters' })
+                    .setTitle('⏰ Quest Abandoned')
+                    .setDescription(`**No response received**\n\nYour quest ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
+                    .setFooter({ text: 'Return tomorrow for a new challenge!' })
                     .setTimestamp();
                 
                 await interaction.followUp({ embeds: [embed] });
@@ -904,260 +903,10 @@ class QuizManager {
 
     createAnswerSummary(answers) {
         let summary = '';
-        let correct = 0;
         
         for (let i = 0; i < answers.length; i++) {
             const answer = answers[i];
             if (answer.isCorrect) {
-                correct++;
-                summary += `${i + 1}. ✅`;
-            } else {
-                summary += `${i + 1}. ❌`;
-            }
-            
-            if ((i + 1) % 5 === 0) {
-                summary += '\n';
-            } else {
-                summary += ' ';
-            }
-        }
-        
-        return summary.trim();
-    }
-
-    // Get guild leaderboard for today
-    async getGuildLeaderboard(guildId) {
-        try {
-            // Check Redis cache first
-            if (this.redis?.connected) {
-                const cached = await this.redis.getCachedGuildLeaderboard(guildId);
-                if (cached) {
-                    return cached;
-                }
-            }
-            
-            // Get from database
-            const completions = await this.db.getGuildCompletionsToday(guildId);
-            
-            // Cache for 1 hour
-            if (this.redis?.connected) {
-                await this.redis.cacheGuildLeaderboard(guildId, completions);
-            }
-            
-            return completions;
-            
-        } catch (error) {
-            console.error('Error getting guild leaderboard:', error);
-            return [];
-        }
-    }
-}
-
-    async handleTimeout(interaction, session, isContinuation = false) {
-        try {
-            if (!isContinuation) {
-                // Question timeout
-                const question = session.questions[session.currentQuestion];
-                session.answers.push({
-                    questionIndex: session.currentQuestion,
-                    selectedAnswer: 'No answer (timeout)',
-                    correctAnswer: question.answer,
-                    isCorrect: false
-                });
-                
-                console.log(`Quiz Q${session.currentQuestion + 1}: ⏰ TIMEOUT User ${session.userId} - Correct: "${question.answer}"`);
-                
-                // Show timeout message
-                const embed = new EmbedBuilder()
-                    .setColor('#FF0000')
-                    .setTitle('⏰ Time\'s Up!')
-                    .setDescription(`**Correct Answer:** ${question.answer}`)
-                    .setFooter({ text: 'Next question...' });
-                
-                await interaction.followUp({ embeds: [embed] });
-                
-                // Move to next question
-                session.currentQuestion++;
-                
-                if (session.currentQuestion >= 10) {
-                    setTimeout(async () => {
-                        await this.endQuiz(interaction, session);
-                    }, 3000);
-                } else {
-                    setTimeout(async () => {
-                        await this.askContinuation(interaction, session);
-                    }, 3000);
-                }
-            } else {
-                // Continuation timeout
-                const embed = new EmbedBuilder()
-                    .setColor('#808080')
-                    .setTitle('⏰ Quest Abandoned')
-                    .setDescription(`**No response received**\n\nYour quest ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
-                    .setFooter({ text: 'Return tomorrow for a new challenge!' })
-                    .setTimestamp();
-                
-                await interaction.followUp({ embeds: [embed] });
-                
-                // Clean up session
-                await this.cleanupQuizSession(session.userId, session.guildId);
-            }
-            
-        } catch (error) {
-            console.error('Error handling timeout:', error);
-        }
-    }
-
-    async handleAbandon(interaction, session) {
-        try {
-            await interaction.update({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor('#FF0000')
-                        .setTitle('🏳️ Quest Abandoned')
-                        .setDescription(`**Journey End**\n\nYou've decided to end your challenge here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
-                        .setFooter({ text: 'Return tomorrow for a new challenge!' })
-                        .setTimestamp()
-                ],
-                components: []
-            });
-            
-            // Clean up session
-            await this.cleanupQuizSession(session.userId, session.guildId);
-            
-        } catch (error) {
-            console.error('Error handling abandon:', error);
-        }
-    }
-            const timeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-            
-            const embed = new EmbedBuilder()
-                .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-                .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Grand Line Conquered - ${TIER_NAMES[tier]}!` : '🗺️ Grand Line Journey Complete')
-                .setDescription(
-                    tier > 0 ? 
-                        `🏴‍☠️ **Congratulations, Legendary Pirate!** 🏴‍☠️\n\nYou've earned the mighty **${TIER_NAMES[tier]}**!\n\n*${TIER_DESCRIPTIONS[tier]}*\n\n⚔️ Your prowess on the Grand Line is now recognized across all seas!` :
-                        '🌊 **Your Grand Line Adventure Ends** 🌊\n\nEven the greatest pirates face defeat sometimes.\n\n*Train harder and return tomorrow for redemption, brave soul!*'
-                )
-                .addFields(
-                    {
-                        name: '⚔️ Battle Results',
-                        value: `${session.score}/10 victories claimed`,
-                        inline: true
-                    },
-                    {
-                        name: '⏱️ Journey Time',
-                        value: timeText,
-                        inline: true
-                    },
-                    {
-                        name: '🏆 Power Gained',
-                        value: tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'No power gained',
-                        inline: true
-                    },
-                    {
-                        name: '🗺️ Battle Summary',
-                        value: this.createAnswerSummary(session.answers),
-                        inline: false
-                    }
-                )
-                .setFooter({ 
-                    text: `Next Grand Line adventure tomorrow • Completed at ${new Date().toLocaleTimeString()}` 
-                })
-                .setTimestamp();
-            
-            await interaction.followUp({ embeds: [embed] });
-            
-        } catch (error) {
-            console.error('Error showing final results:', error);
-        }
-    }
-
-    async showAlreadyCompleted(interaction, completion) {
-        const tier = completion.tier || completion.score;
-        const { TIER_NAMES, TIER_COLORS, TIER_EMOJIS } = require('../utils/constants');
-        
-        // Get next reset time
-        const nextReset = interaction.resetManager.getNextResetTime();
-        
-        const embed = new EmbedBuilder()
-            .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-            .setTitle('📋 Today\'s Grand Line Adventure Complete')
-            .setDescription(`**Your journey is already complete for today, pirate!** 🏴‍☠️\n\nYou've proven your worth on today's Grand Line challenges.`)
-            .addFields(
-                {
-                    name: '⚔️ Your Battle Results',
-                    value: `**Victories:** ${completion.score}/10 battles won\n**Power Earned:** ${tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'No power gained'}`,
-                    inline: true
-                },
-                {
-                    name: '🌅 Next Adventure',
-                    value: `<t:${nextReset.unix}:R>\n(${process.env.DAILY_RESET_HOUR_EDT || 0}:${(process.env.DAILY_RESET_MINUTE_EDT || 30).toString().padStart(2, '0')} EDT)`,
-                    inline: true
-                },
-                {
-                    name: '🏆 Current Status',
-                    value: tier > 0 ? `You currently wield the **${TIER_NAMES[tier]}**!\n\n*Your power resonates across the Grand Line!*` : '⚔️ *No power boost today - train harder tomorrow, pirate!*',
-                    inline: false
-                }
-            )
-            .setFooter({ text: 'Return tomorrow for a new Grand Line challenge!' })
-            .setTimestamp();
-        
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
-    }
-
-    createProgressBar(currentQuestion, answers) {
-        const total = 10;
-        let bar = '';
-        
-        for (let i = 0; i < total; i++) {
-            if (i < answers.length) {
-                bar += answers[i].isCorrect ? '🟩 ' : '🟥 ';
-            } else if (i === currentQuestion) {
-                bar += '⏹️ '; // Active question
-            } else {
-                bar += '⬛ '; // Not reached yet
-            }
-        }
-        
-        return bar.trim();
-    }
-
-    createTimeBar(timeRemaining) {
-        const totalTime = parseInt(process.env.QUESTION_TIME_LIMIT) || 20;
-        const percentage = (timeRemaining / totalTime) * 100;
-        
-        let timeBar = '';
-        
-        // Create 10 segments, countdown from right to left
-        for (let i = 0; i < 10; i++) {
-            const segmentPercentage = (i / 10) * 100;
-            
-            if (percentage > segmentPercentage) {
-                if (percentage >= 66) {
-                    timeBar += '🟩 ';
-                } else if (percentage >= 33) {
-                    timeBar += '🟨 ';
-                } else {
-                    timeBar += '🟥 ';
-                }
-            } else {
-                timeBar += '⬛ ';
-            }
-        }
-        
-        return `${timeBar.trim()} \`${timeRemaining}s remaining\``;
-    }
-
-    createAnswerSummary(answers) {
-        let summary = '';
-        let correct = 0;
-        
-        for (let i = 0; i < answers.length; i++) {
-            const answer = answers[i];
-            if (answer.isCorrect) {
-                correct++;
                 summary += `${i + 1}. ✅`;
             } else {
                 summary += `${i + 1}. ❌`;
