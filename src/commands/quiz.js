@@ -42,21 +42,7 @@ module.exports = {
             console.log(`🔄 Preloading questions for user ${interaction.user.id}...`);
             interaction.quizManager.preloadQuestions(interaction.user.id, interaction.guild.id).catch(console.error);
 
-            // Prepare the anime.gif attachment
-            let attachment = null;
-            const gifPath = path.join(process.cwd(), 'assets', 'anime.gif');
-            
-            try {
-                if (fs.existsSync(gifPath)) {
-                    attachment = new AttachmentBuilder(gifPath, { name: 'anime.gif' });
-                } else {
-                    console.warn('⚠️ anime.gif not found at:', gifPath);
-                }
-            } catch (error) {
-                console.warn('⚠️ Error loading anime.gif:', error.message);
-            }
-
-            // Show quiz introduction with Nico Robin theme
+            // Show quiz introduction with Nico Robin theme (NO GIF HERE)
             const introEmbed = new EmbedBuilder()
                 .setColor('#6B4E8D') // Nico Robin's purple theme
                 .setTitle('📚 Ancient Knowledge Quiz')
@@ -80,28 +66,20 @@ module.exports = {
                 )
                 .setFooter({ text: '"The desire to know is what makes us human." - Nico Robin' });
 
-            // Add image if available
-            if (attachment) {
-                introEmbed.setImage('attachment://anime.gif');
-            }
-
-            const embedData = { embeds: [introEmbed] };
-            if (attachment) {
-                embedData.files = [attachment];
-            }
-
-            embedData.components = [{
-                type: 1,
+            // NO GIF on intro page
+            await interaction.reply({
+                embeds: [introEmbed],
                 components: [{
-                    type: 2,
-                    style: 1, // Primary style (blue)
-                    label: '📚 BEGIN QUIZ',
-                    custom_id: `start_quiz_${interaction.user.id}`,
-                    emoji: { name: '🌸' }
+                    type: 1,
+                    components: [{
+                        type: 2,
+                        style: 1, // Primary style (blue)
+                        label: '📚 BEGIN QUIZ',
+                        custom_id: `start_quiz_${interaction.user.id}`,
+                        emoji: { name: '🌸' }
+                    }]
                 }]
-            }];
-
-            await interaction.reply(embedData);
+            });
 
             // Handle start quiz button
             const collector = interaction.channel.createMessageComponentCollector({
@@ -120,7 +98,7 @@ module.exports = {
                             .setFooter({ text: '"I want to live!" - Show me your determination!' })
                     ],
                     components: [],
-                    files: attachment ? [attachment] : []
+                    files: [] // NO GIF on loading screen
                 });
 
                 // Start the quiz immediately with preloaded questions
