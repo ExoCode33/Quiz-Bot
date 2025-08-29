@@ -2,17 +2,23 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 
 class QuestionLoader {
     constructor() {
+        // Improved API endpoints with better anime content and rate limiting
         this.apiEndpoints = [
-            // Working APIs (increased amounts)
-            'https://opentdb.com/api.php?amount=10&category=31&type=multiple',
-            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=10',
+            // OpenTDB with smaller requests to avoid rate limiting
+            'https://opentdb.com/api.php?amount=5&category=31&type=multiple',
             
-            // Fixed API endpoints
-            'https://aniquizapi.vercel.app/api/quiz?difficulty=medium', // Single question endpoint
-            'https://beta-trivia.bongobot.io/?category=entertainment&limit=8', // Fixed category name
+            // Alternative anime-focused APIs
+            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5',
             
-            // Alternative working API instead of API Ninjas
-            'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=hard' // Second OpenTDB call for hard questions
+            // Try different OpenTDB difficulties in separate calls
+            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=easy',
+            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=medium',
+            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=hard',
+            
+            // Single question APIs (less likely to be rate limited)
+            'https://aniquizapi.vercel.app/api/quiz?difficulty=medium',
+            'https://aniquizapi.vercel.app/api/quiz?difficulty=easy',
+            'https://aniquizapi.vercel.app/api/quiz?difficulty=hard',
         ];
     }
 
@@ -24,53 +30,67 @@ class QuestionLoader {
             const apiQuestions = await this.fetchFromAllAPIs(avoidQuestions);
             console.log(`📡 Received ${apiQuestions.length} total questions from all APIs`);
             
+            // If we don't have enough API questions, heavily supplement with fallbacks
+            let allQuestions = [...apiQuestions];
+            
+            if (allQuestions.length < targetCount) {
+                console.log(`⚠️ Only ${allQuestions.length} API questions available, adding fallbacks...`);
+                
+                // Get fallback questions to fill the gap
+                const fallbacksNeeded = targetCount - allQuestions.length + 5; // Extra buffer
+                const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, new Set(), fallbacksNeeded);
+                
+                allQuestions = [...allQuestions, ...fallbackQuestions];
+                console.log(`📚 Total questions after adding fallbacks: ${allQuestions.length}`);
+            }
+            
             // Separate questions by difficulty
-            const questionsByDifficulty = this.separateQuestionsByDifficulty(apiQuestions, avoidQuestions);
-            
-            // Get fallback questions separated by difficulty
-            const fallbacksByDifficulty = this.getFallbackQuestionsByDifficulty(avoidQuestions, new Set());
-            
-            // Combine API and fallback questions by difficulty
-            const combinedEasy = [...questionsByDifficulty.easy, ...fallbacksByDifficulty.easy];
-            const combinedMedium = [...questionsByDifficulty.medium, ...fallbacksByDifficulty.medium];
-            const combinedHard = [...questionsByDifficulty.hard, ...fallbacksByDifficulty.hard];
-            
-            // Shuffle each difficulty pool
-            this.shuffleArray(combinedEasy);
-            this.shuffleArray(combinedMedium);
-            this.shuffleArray(combinedHard);
+            const questionsByDifficulty = this.separateQuestionsByDifficulty(allQuestions, avoidQuestions);
             
             // Build quiz with proper progression: 2 easy, 4 medium, 4 hard, 3 extra (any difficulty)
             const quizQuestions = [];
             const usedQuestions = new Set();
             
             // Add 2 easy questions (Q1-Q2)
-            this.addQuestionsFromPool(quizQuestions, combinedEasy, usedQuestions, 2, 'Easy');
+            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.easy, usedQuestions, 2, 'Easy');
             
             // Add 4 medium questions (Q3-Q6)
-            this.addQuestionsFromPool(quizQuestions, combinedMedium, usedQuestions, 4, 'Medium');
+            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.medium, usedQuestions, 4, 'Medium');
             
             // Add 4 hard questions (Q7-Q10)
-            this.addQuestionsFromPool(quizQuestions, combinedHard, usedQuestions, 4, 'Hard');
+            this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.hard, usedQuestions, 4, 'Hard');
             
             // Add 3 extra questions for rerolls (any difficulty)
             const allRemaining = [
-                ...combinedEasy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-                ...combinedMedium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
-                ...combinedHard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
+                ...questionsByDifficulty.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+                ...questionsByDifficulty.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+                ...questionsByDifficulty.hard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
             ];
             this.shuffleArray(allRemaining);
             this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, 3, 'Mixed');
             
+            // If we still don't have enough questions, fill with any available
+            if (quizQuestions.length < targetCount) {
+                const remainingNeeded = targetCount - quizQuestions.length;
+                console.log(`⚠️ Still need ${remainingNeeded} more questions, filling with any available...`);
+                
+                const anyRemaining = allQuestions.filter(q => 
+                    !usedQuestions.has(q.question.toLowerCase().trim())
+                );
+                
+                this.shuffleArray(anyRemaining);
+                this.addQuestionsFromPool(quizQuestions, anyRemaining, usedQuestions, remainingNeeded, 'Fill');
+            }
+            
             console.log(`✅ Loaded ${quizQuestions.length} questions with difficulty progression:`);
-            console.log(`   Q1-Q2:  Easy (${quizQuestions.slice(0, 2).length})`);
-            console.log(`   Q3-Q6:  Medium (${quizQuestions.slice(2, 6).length})`);
-            console.log(`   Q7-Q10: Hard (${quizQuestions.slice(6, 10).length})`);
-            console.log(`   Extra:  Rerolls (${quizQuestions.slice(10).length})`);
+            console.log(`   Q1-Q2:  Easy (${Math.min(2, quizQuestions.length)})`);
+            console.log(`   Q3-Q6:  Medium (${Math.min(4, Math.max(0, quizQuestions.length - 2))})`);
+            console.log(`   Q7-Q10: Hard (${Math.min(4, Math.max(0, quizQuestions.length - 6))})`);
+            console.log(`   Extra:  Rerolls (${Math.max(0, quizQuestions.length - 10)})`);
             
             this.logDifficultyStats(quizQuestions);
             
-            return quizQuestions;
+            return quizQuestions.slice(0, targetCount); // Ensure we don't exceed target
             
         } catch (error) {
             console.error('❌ Error loading questions:', error);
@@ -97,10 +117,6 @@ class QuestionLoader {
                 continue;
             }
             
-            if (!this.isValidQuestion(question, avoidQuestions)) {
-                continue;
-            }
-            
             usedQuestions.add(questionKey);
             
             // Normalize difficulty and categorize
@@ -116,38 +132,17 @@ class QuestionLoader {
             }
         }
         
-        console.log(`📊 API Questions by Difficulty:`);
+        // Shuffle each pool
+        this.shuffleArray(separated.easy);
+        this.shuffleArray(separated.medium);
+        this.shuffleArray(separated.hard);
+        
+        console.log(`📊 Questions by Difficulty (after validation):`);
         console.log(`   Easy: ${separated.easy.length}`);
         console.log(`   Medium: ${separated.medium.length}`);
         console.log(`   Hard: ${separated.hard.length}`);
         
         return separated;
-    }
-
-    getFallbackQuestionsByDifficulty(avoidQuestions, usedQuestions) {
-        const fallbacks = {
-            easy: [...FALLBACK_QUESTIONS.Easy],
-            medium: [...FALLBACK_QUESTIONS.Medium],
-            hard: [...FALLBACK_QUESTIONS.Hard]
-        };
-        
-        // Filter out avoided and used questions
-        Object.keys(fallbacks).forEach(difficulty => {
-            fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
-                const questionKey = question.question.toLowerCase().trim();
-                return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
-            });
-            
-            // Shuffle each difficulty pool
-            this.shuffleArray(fallbacks[difficulty]);
-        });
-        
-        console.log(`📚 Fallback Questions by Difficulty:`);
-        console.log(`   Easy: ${fallbacks.easy.length}`);
-        console.log(`   Medium: ${fallbacks.medium.length}`);
-        console.log(`   Hard: ${fallbacks.hard.length}`);
-        
-        return fallbacks;
     }
 
     addQuestionsFromPool(quizQuestions, pool, usedQuestions, needed, difficultyLabel) {
@@ -196,6 +191,32 @@ class QuestionLoader {
         return quizQuestions;
     }
 
+    getFallbackQuestionsByDifficulty(avoidQuestions, usedQuestions) {
+        const fallbacks = {
+            easy: [...FALLBACK_QUESTIONS.Easy],
+            medium: [...FALLBACK_QUESTIONS.Medium],
+            hard: [...FALLBACK_QUESTIONS.Hard]
+        };
+        
+        // Filter out avoided and used questions
+        Object.keys(fallbacks).forEach(difficulty => {
+            fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
+                const questionKey = question.question.toLowerCase().trim();
+                return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
+            });
+            
+            // Shuffle each difficulty pool
+            this.shuffleArray(fallbacks[difficulty]);
+        });
+        
+        console.log(`📚 Fallback Questions by Difficulty:`);
+        console.log(`   Easy: ${fallbacks.easy.length}`);
+        console.log(`   Medium: ${fallbacks.medium.length}`);
+        console.log(`   Hard: ${fallbacks.hard.length}`);
+        
+        return fallbacks;
+    }
+
     logDifficultyStats(questions) {
         console.log('\n🎯 Final Quiz Difficulty Progression:');
         
@@ -221,19 +242,31 @@ class QuestionLoader {
     async fetchFromAllAPIs(avoidQuestions) {
         const allQuestions = [];
         
-        // Use Promise.allSettled for concurrent API calls
-        const apiPromises = this.apiEndpoints.map((apiUrl, index) => 
-            this.fetchFromSingleAPI(apiUrl, avoidQuestions, index + 1)
-        );
-        const results = await Promise.allSettled(apiPromises);
-        
-        for (let i = 0; i < results.length; i++) {
-            const result = results[i];
-            if (result.status === 'fulfilled' && result.value.length > 0) {
-                console.log(`✅ API ${i + 1} (${this.getAPIName(this.apiEndpoints[i])}): ${result.value.length} questions`);
-                allQuestions.push(...result.value);
-            } else {
-                console.log(`❌ API ${i + 1} (${this.getAPIName(this.apiEndpoints[i])}): Failed or no questions`);
+        // Add delays between API calls to avoid rate limiting
+        for (let i = 0; i < this.apiEndpoints.length; i++) {
+            const apiUrl = this.apiEndpoints[i];
+            
+            try {
+                const questions = await this.fetchFromSingleAPI(apiUrl, avoidQuestions, i + 1);
+                if (questions.length > 0) {
+                    console.log(`✅ API ${i + 1} (${this.getAPIName(apiUrl)}): ${questions.length} questions`);
+                    allQuestions.push(...questions);
+                } else {
+                    console.log(`❌ API ${i + 1} (${this.getAPIName(apiUrl)}): No valid questions`);
+                }
+                
+                // Add delay between API calls to avoid rate limiting
+                if (i < this.apiEndpoints.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+                }
+                
+            } catch (error) {
+                console.log(`❌ API ${i + 1} (${this.getAPIName(apiUrl)}): Failed - ${error.message}`);
+                
+                // Add delay even on failure
+                if (i < this.apiEndpoints.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Longer delay on failure
+                }
             }
         }
         
@@ -248,25 +281,25 @@ class QuestionLoader {
             console.log(`📡 API ${apiNumber}: Fetching from ${this.getAPIName(apiUrl)}`);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // Increased timeout to 15 seconds
-            
-            // Special headers for different APIs
-            const headers = {
-                'User-Agent': 'AnimeQuizBot/1.0',
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            };
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
             const response = await fetch(apiUrl, {
                 method: 'GET',
-                headers,
+                headers: {
+                    'User-Agent': 'AnimeQuizBot/1.0',
+                    'Accept': 'application/json'
+                },
                 signal: controller.signal
             });
             
             clearTimeout(timeoutId);
             
             if (!response.ok) {
-                console.warn(`⚠️ API ${apiNumber} (${this.getAPIName(apiUrl)}) returned status ${response.status}`);
+                if (response.status === 429) {
+                    console.warn(`⚠️ API ${apiNumber} rate limited (429), will use fallbacks`);
+                } else {
+                    console.warn(`⚠️ API ${apiNumber} returned status ${response.status}`);
+                }
                 return [];
             }
             
@@ -290,7 +323,7 @@ class QuestionLoader {
         
         try {
             if (apiUrl.includes('opentdb.com')) {
-                // OpenTDB format - these are from Entertainment/Anime category
+                // OpenTDB format
                 if (data.results && Array.isArray(data.results)) {
                     for (const item of data.results) {
                         const question = {
@@ -306,7 +339,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('trivia-api.com')) {
-                // The Trivia API format - anime/manga category
+                // The Trivia API format
                 if (Array.isArray(data)) {
                     for (const item of data) {
                         const question = {
@@ -322,7 +355,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('aniquizapi.vercel.app')) {
-                // AniQuizAPI format - dedicated anime API
+                // AniQuizAPI format
                 if (data.question) {
                     const question = {
                         question: this.cleanText(data.question),
@@ -337,51 +370,21 @@ class QuestionLoader {
                         question.options.push(question.answer);
                     }
                     
-                    // Pad with reasonable dummy options if needed
-                    const dummyOptions = [
-                        'Light Yagami', 'Edward Elric', 'Natsu Dragneel', 'Ichigo Kurosaki',
-                        'Fire Magic', 'Water Magic', 'Ice Magic', 'Lightning Magic',
-                        'Tokyo', 'Konoha', 'Soul Society', 'Grand Line'
+                    // Pad with anime-themed dummy options if needed
+                    const animeDummies = [
+                        'Monkey D. Luffy', 'Naruto Uzumaki', 'Edward Elric', 'Light Yagami',
+                        'Ichigo Kurosaki', 'Natsu Dragneel', 'Eren Yeager', 'Goku',
+                        'Fire Magic', 'Water Technique', 'Lightning Style', 'Wind Blade'
                     ];
                     
                     while (question.options.length < 4) {
-                        const availableDummy = dummyOptions.find(opt => !question.options.includes(opt));
+                        const availableDummy = animeDummies.find(opt => !question.options.includes(opt));
                         if (availableDummy) {
                             question.options.push(availableDummy);
                         } else {
                             question.options.push(`Option ${question.options.length}`);
                         }
                     }
-                    
-                    this.shuffleArray(question.options);
-                    questions.push(question);
-                }
-            } else if (apiUrl.includes('beta-trivia.bongobot.io')) {
-                // Beta Trivia API format - entertainment category (more permissive)
-                if (Array.isArray(data)) {
-                    for (const item of data) {
-                        const question = {
-                            question: this.cleanText(item.question),
-                            answer: this.cleanText(item.correct_answer),
-                            options: [...item.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(item.correct_answer)],
-                            difficulty: item.difficulty || 'Medium',
-                            source: 'BetaTrivia'
-                        };
-                        
-                        this.shuffleArray(question.options);
-                        questions.push(question);
-                    }
-                } else if (data.question) {
-                    // Single question format
-                    const question = {
-                        question: this.cleanText(data.question),
-                        answer: this.cleanText(data.correct_answer || data.answer),
-                        options: data.incorrect_answers ? 
-                            [...data.incorrect_answers.map(opt => this.cleanText(opt)), this.cleanText(data.correct_answer || data.answer)] :
-                            [this.cleanText(data.correct_answer || data.answer), 'Option A', 'Option B', 'Option C'],
-                        difficulty: data.difficulty || 'Medium',
-                        source: 'BetaTrivia'
-                    };
                     
                     this.shuffleArray(question.options);
                     questions.push(question);
@@ -433,140 +436,77 @@ class QuestionLoader {
                 return false;
             }
             
-            // ==================== IMPROVED ANIME DETECTION ====================
+            // ==================== ANIME DETECTION ====================
             
-            // 1. Check for explicit anime/manga keywords (strong indicators)
-            const hasExplicitAnimeKeywords = [
-                'anime', 'manga', 'otaku', 'cosplay', 'japanese animation',
-                'seiyuu', 'voice actor', 'dub', 'sub', 'episode', 'season',
-                'shounen', 'shoujo', 'seinen', 'josei', 'mecha', 'magical girl',
-                'isekai', 'harem', 'tsundere', 'yandere', 'kuudere', 'dandere',
-                'waifu', 'husbando', 'senpai', 'kouhai', 'sensei'
-            ].some(keyword => questionLower.includes(keyword.toLowerCase()));
+            // Strong anime indicators
+            const strongAnimeIndicators = [
+                // Explicit anime keywords
+                'anime', 'manga', 'otaku', 'japanese animation',
+                // Anime-specific terms
+                'devil fruit', 'chakra', 'jutsu', 'quirk', 'stand', 'titan',
+                'soul reaper', 'hollow', 'bankai', 'shikai', 'zanpakuto',
+                'hokage', 'shinobi', 'ninja village', 'pirate king',
+                // Character types
+                'tsundere', 'yandere', 'kuudere', 'dandere', 'waifu', 'husbando',
+                // Cultural terms
+                'senpai', 'kouhai', 'sensei', 'chan', 'kun', 'sama',
+                // Series-specific
+                'dragon ball', 'one piece', 'naruto', 'bleach', 'attack on titan',
+                'my hero academia', 'death note', 'fullmetal alchemist'
+            ];
 
-            // 2. Check for anime titles (very strong indicator)
+            const hasStrongIndicators = strongAnimeIndicators.some(indicator => 
+                questionLower.includes(indicator.toLowerCase())
+            );
+
+            // Anime titles check
             const hasAnimeTitles = ANIME_TITLES.some(title => 
                 questionLower.includes(title.toLowerCase())
             );
 
-            // 3. Check for anime-specific terms and concepts
-            const hasAnimeTerms = [
-                'devil fruit', 'chakra', 'jutsu', 'quirk', 'stand', 'titan',
-                'soul reaper', 'hollow', 'bankai', 'shikai', 'zanpakuto',
-                'guild', 'crew', 'nakama', 'pirate king', 'hokage', 'shinobi',
-                'ninja', 'samurai', 'dojo', 'tournament', 'battle royale',
-                'power level', 'transformation', 'ki', 'chi', 'aura',
-                'demon slayer', 'dragon ball', 'one piece', 'naruto', 'bleach'
-            ].some(term => questionLower.includes(term));
+            // Question pattern check
+            const hasAnimePattern = [
+                'which.*anime', 'in.*anime', 'anime.*series', 'manga.*series',
+                'which.*character', 'protagonist.*of', 'main.*character'
+            ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
 
-            // 4. Check for anime character naming patterns
-            const hasAnimeNamePattern = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(question.question) && (
-                questionLower.includes('character') || 
-                questionLower.includes('protagonist') ||
-                questionLower.includes('main') ||
-                questionLower.includes('hero')
-            );
-
-            // 5. Check answer options for anime content
+            // Answer options contain anime content
             const answersHaveAnime = question.options.some(option => {
                 const optionLower = option.toLowerCase();
                 return ANIME_TITLES.some(title => optionLower.includes(title.toLowerCase())) ||
                        [
-                           'luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward elric',
-                           'light yagami', 'l lawliet', 'monkey d', 'uchiha', 'uzumaki',
-                           'fire', 'water', 'earth', 'wind', 'lightning', 'ice', 'darkness'
+                           'luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward',
+                           'light yagami', 'monkey d', 'uchiha', 'uzumaki'
                        ].some(name => optionLower.includes(name));
             });
-
-            // 6. Check for anime-specific question patterns
-            const hasAnimeQuestionPattern = [
-                'which.*anime', 'in.*anime', 'from.*anime', 'anime.*series',
-                'manga.*series', 'which.*character', 'protagonist.*of',
-                'main.*character', 'hero.*academia', 'attack.*titan',
-                'dragon.*ball', 'one.*piece', 'death.*note'
-            ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
-
-            // STRONG ANIME INDICATORS - if any of these are true, likely anime
-            const strongAnimeIndicators = 
-                hasExplicitAnimeKeywords || 
-                hasAnimeTitles || 
-                hasAnimeTerms || 
-                hasAnimeQuestionPattern;
-
-            // WEAK ANIME INDICATORS - supporting evidence
-            const weakAnimeIndicators = 
-                hasAnimeNamePattern || 
-                answersHaveAnime;
 
             // ==================== REJECTION FILTERS ====================
             
             // Reject obvious non-anime content
-            const nonAnimeKeywords = [
-                'call of duty', 'overwatch', 'pokemon go', 'minecraft', 'fortnite',
-                'xbox', 'playstation', 'nintendo switch', 'pc game', 'mobile game',
+            const nonAnimeContent = [
+                'call of duty', 'minecraft', 'fortnite', 'overwatch',
+                'xbox', 'playstation', 'nintendo switch', 'pc game',
                 'hollywood', 'netflix', 'disney', 'marvel', 'dc comics',
-                'american', 'british', 'french', 'german', 'spanish',
-                'real life', 'historical', 'biography', 'documentary'
-            ];
-            
-            const hasNonAnimeKeywords = nonAnimeKeywords.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            );
+                'billboard', 'grammy', 'album chart', 'music producer'
+            ].some(keyword => questionLower.includes(keyword.toLowerCase()));
 
-            // Reject pure gaming questions (unless they have strong anime indicators)
-            const isPureGaming = [
-                'video game', 'pc game', 'console game', 'mobile game',
-                'game developer', 'game publisher', 'steam', 'epic games',
-                'nintendo', 'sony', 'microsoft', 'valve'
-            ].some(term => questionLower.includes(term)) && !strongAnimeIndicators;
-
-            // Reject music questions unless anime-related
-            const isPureMusicQuestion = [
-                'billboard', 'grammy', 'album chart', 'recording studio',
-                'music producer', 'record label', 'music video'
-            ].some(term => questionLower.includes(term)) && !strongAnimeIndicators;
-
-            // ==================== DECISION LOGIC ====================
-            
-            // Definitely reject non-anime content
-            if (hasNonAnimeKeywords || isPureGaming || isPureMusicQuestion) {
+            if (nonAnimeContent) {
                 console.log(`❌ Rejecting non-anime content: ${question.question.substring(0, 60)}...`);
                 return false;
             }
 
+            // ==================== DECISION LOGIC ====================
+            
             // Accept if we have strong anime indicators
-            if (strongAnimeIndicators) {
+            if (hasStrongIndicators || hasAnimeTitles || hasAnimePattern) {
                 console.log(`✅ Accepting anime question (strong): ${question.question.substring(0, 60)}...`);
                 return true;
             }
 
-            // Accept if we have weak indicators and it's from a trusted anime API
-            if (weakAnimeIndicators && (question.source === 'OpenTDB' || question.source === 'TriviaAPI')) {
+            // Accept if answers contain anime content and it's from a trusted source
+            if (answersHaveAnime && (question.source === 'OpenTDB' || question.source === 'TriviaAPI' || question.source === 'AniQuizAPI')) {
                 console.log(`✅ Accepting anime question (weak + trusted): ${question.question.substring(0, 60)}...`);
                 return true;
-            }
-
-            // Check for overly technical questions only after anime validation
-            const isTooTechnical = BAD_KEYWORDS.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            );
-
-            if (isTooTechnical) {
-                // Allow some technical questions if they're clearly anime-related
-                const allowedTechnicalPatterns = [
-                    'voice.*actor.*anime', 'anime.*voice', 'seiyuu.*voice',
-                    'anime.*air', 'when.*anime.*release', 'anime.*debut',
-                    'anime.*character', 'character.*anime'
-                ];
-                
-                const isAllowedTechnical = allowedTechnicalPatterns.some(pattern => 
-                    new RegExp(pattern, 'i').test(questionLower)
-                );
-                
-                if (!isAllowedTechnical) {
-                    console.log(`❌ Rejecting technical question: ${question.question.substring(0, 60)}...`);
-                    return false;
-                }
             }
 
             // Final quality checks
@@ -574,13 +514,7 @@ class QuestionLoader {
             if (numberCount > 4) {
                 return false;
             }
-            
-            // Reject multiple choice artifacts in the question text
-            if (/\b(a\)|b\)|c\)|d\)|\(a\)|\(b\)|\(c\)|\(d\))/i.test(questionLower)) {
-                return false;
-            }
 
-            // If we get here, it's probably not anime-related enough
             console.log(`❌ Rejecting question (insufficient anime content): ${question.question.substring(0, 60)}...`);
             return false;
             
@@ -599,14 +533,15 @@ class QuestionLoader {
         this.shuffleArray(mediumQuestions);
         this.shuffleArray(hardQuestions);
         
-        const easyCount = Math.ceil(targetCount * 0.4);
-        const mediumCount = Math.ceil(targetCount * 0.4);
+        // Calculate balanced distribution
+        const easyCount = Math.min(6, Math.ceil(targetCount * 0.3));
+        const mediumCount = Math.min(6, Math.ceil(targetCount * 0.4));
         const hardCount = targetCount - easyCount - mediumCount;
         
         const balancedQuestions = [
             ...easyQuestions.slice(0, easyCount),
             ...mediumQuestions.slice(0, mediumCount),
-            ...hardQuestions.slice(0, hardCount)
+            ...hardQuestions.slice(0, Math.max(hardCount, 0))
         ];
         
         const availableFallbacks = balancedQuestions.filter(question => {
@@ -615,8 +550,7 @@ class QuestionLoader {
         });
         
         if (availableFallbacks.length < targetCount) {
-            console.warn(`⚠️ Only ${availableFallbacks.length} unique fallback questions available, adding more...`);
-            
+            // Add more questions from all categories
             const allFallbacks = [...easyQuestions, ...mediumQuestions, ...hardQuestions];
             this.shuffleArray(allFallbacks);
             
@@ -668,11 +602,16 @@ class QuestionLoader {
     getAPIName(url) {
         if (url.includes('opentdb.com')) {
             if (url.includes('difficulty=hard')) return 'OpenTDB-Hard';
+            if (url.includes('difficulty=medium')) return 'OpenTDB-Medium';
+            if (url.includes('difficulty=easy')) return 'OpenTDB-Easy';
             return 'OpenTDB';
         }
         if (url.includes('trivia-api.com')) return 'TriviaAPI';
-        if (url.includes('aniquizapi.vercel.app')) return 'AniQuizAPI';
-        if (url.includes('beta-trivia.bongobot.io')) return 'BetaTrivia';
+        if (url.includes('aniquizapi.vercel.app')) {
+            if (url.includes('difficulty=hard')) return 'AniQuizAPI-Hard';
+            if (url.includes('difficulty=easy')) return 'AniQuizAPI-Easy';
+            return 'AniQuizAPI-Medium';
+        }
         return 'Unknown';
     }
 
