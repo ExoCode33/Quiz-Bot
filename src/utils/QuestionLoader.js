@@ -2,42 +2,107 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 
 class QuestionLoader {
     constructor() {
-        // Improved API endpoints with better anime content and rate limiting
+        // Optimized API endpoints with better rate limiting strategy
         this.apiEndpoints = [
-            // OpenTDB with smaller requests to avoid rate limiting
-            'https://opentdb.com/api.php?amount=5&category=31&type=multiple',
-            
-            // Alternative anime-focused APIs
-            'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5',
-            
-            // Try different OpenTDB difficulties in separate calls
-            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=easy',
-            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=medium',
-            'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=hard',
-            
-            // Single question APIs (less likely to be rate limited)
-            'https://aniquizapi.vercel.app/api/quiz?difficulty=medium',
-            'https://aniquizapi.vercel.app/api/quiz?difficulty=easy',
-            'https://aniquizapi.vercel.app/api/quiz?difficulty=hard',
+            {
+                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=easy',
+                name: 'OpenTDB-Easy',
+                priority: 1,
+                maxRetries: 2,
+                delay: 800
+            },
+            {
+                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=medium',
+                name: 'OpenTDB-Medium', 
+                priority: 1,
+                maxRetries: 2,
+                delay: 1000
+            },
+            {
+                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=hard',
+                name: 'OpenTDB-Hard',
+                priority: 1,
+                maxRetries: 2,
+                delay: 1200
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=easy',
+                name: 'TriviaAPI-Easy',
+                priority: 2,
+                maxRetries: 1,
+                delay: 500
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=medium',
+                name: 'TriviaAPI-Medium',
+                priority: 2,
+                maxRetries: 1,
+                delay: 600
+            },
+            {
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=hard',
+                name: 'TriviaAPI-Hard',
+                priority: 2,
+                maxRetries: 1,
+                delay: 700
+            },
+            {
+                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=easy',
+                name: 'AniQuizAPI-Easy',
+                priority: 3,
+                maxRetries: 3,
+                delay: 300
+            },
+            {
+                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=medium', 
+                name: 'AniQuizAPI-Medium',
+                priority: 3,
+                maxRetries: 3,
+                delay: 400
+            },
+            {
+                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=hard',
+                name: 'AniQuizAPI-Hard',
+                priority: 3,
+                maxRetries: 3,
+                delay: 500
+            }
         ];
+        
+        // Rate limiting configuration
+        this.lastApiCall = new Map();
+        this.minDelayBetweenCalls = 800;
+        
+        // Simple stats tracking
+        this.sessionStats = {
+            totalCalls: 0,
+            successfulCalls: 0,
+            totalQuestions: 0,
+            validQuestions: 0
+        };
     }
 
     async loadQuestions(avoidQuestions = new Set(), targetCount = 13) {
         try {
-            console.log(`🔄 Loading ${targetCount} anime quiz questions with difficulty progression...`);
+            // Reset session stats
+            this.sessionStats = { totalCalls: 0, successfulCalls: 0, totalQuestions: 0, validQuestions: 0 };
+            
+            console.log(`🔄 Loading ${targetCount} anime quiz questions with improved system...`);
             
             // Load questions from APIs first
             const apiQuestions = await this.fetchFromAllAPIs(avoidQuestions);
             console.log(`📡 Received ${apiQuestions.length} total questions from all APIs`);
             
-            // If we don't have enough API questions, heavily supplement with fallbacks
+            // Log simple stats
+            this.logSimpleStats();
+            
+            // If we don't have enough API questions, supplement with fallbacks
             let allQuestions = [...apiQuestions];
             
             if (allQuestions.length < targetCount) {
                 console.log(`⚠️ Only ${allQuestions.length} API questions available, adding fallbacks...`);
                 
-                // Get fallback questions to fill the gap
-                const fallbacksNeeded = targetCount - allQuestions.length + 5; // Extra buffer
+                const fallbacksNeeded = targetCount - allQuestions.length + 5;
                 const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, new Set(), fallbacksNeeded);
                 
                 allQuestions = [...allQuestions, ...fallbackQuestions];
@@ -47,7 +112,7 @@ class QuestionLoader {
             // Separate questions by difficulty
             const questionsByDifficulty = this.separateQuestionsByDifficulty(allQuestions, avoidQuestions);
             
-            // Build quiz with proper progression: 2 easy, 4 medium, 4 hard, 3 extra (any difficulty)
+            // Build quiz with proper progression: 2 easy, 4 medium, 4 hard, 3 extra
             const quizQuestions = [];
             const usedQuestions = new Set();
             
@@ -60,7 +125,7 @@ class QuestionLoader {
             // Add 4 hard questions (Q7-Q10)
             this.addQuestionsFromPool(quizQuestions, questionsByDifficulty.hard, usedQuestions, 4, 'Hard');
             
-            // Add 3 extra questions for rerolls (any difficulty)
+            // Add 3 extra questions for rerolls
             const allRemaining = [
                 ...questionsByDifficulty.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
                 ...questionsByDifficulty.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
@@ -69,7 +134,7 @@ class QuestionLoader {
             this.shuffleArray(allRemaining);
             this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, 3, 'Mixed');
             
-            // If we still don't have enough questions, fill with any available
+            // If we still don't have enough, fill with any available
             if (quizQuestions.length < targetCount) {
                 const remainingNeeded = targetCount - quizQuestions.length;
                 console.log(`⚠️ Still need ${remainingNeeded} more questions, filling with any available...`);
@@ -90,14 +155,26 @@ class QuestionLoader {
             
             this.logDifficultyStats(quizQuestions);
             
-            return quizQuestions.slice(0, targetCount); // Ensure we don't exceed target
+            return quizQuestions.slice(0, targetCount);
             
         } catch (error) {
             console.error('❌ Error loading questions:', error);
             
-            // Return fallback questions with proper difficulty progression
+            // Log simple stats even on error
+            this.logSimpleStats();
+            
             return this.buildFallbackQuestionsWithProgression(avoidQuestions, targetCount);
         }
+    }
+
+    logSimpleStats() {
+        const successRate = this.sessionStats.totalCalls > 0 ? 
+            ((this.sessionStats.successfulCalls / this.sessionStats.totalCalls) * 100).toFixed(1) : '0.0';
+        const validationRate = this.sessionStats.totalQuestions > 0 ? 
+            ((this.sessionStats.validQuestions / this.sessionStats.totalQuestions) * 100).toFixed(1) : '0.0';
+
+        console.log(`📊 Session Summary: ${this.sessionStats.successfulCalls}/${this.sessionStats.totalCalls} API calls successful (${successRate}%)`);
+        console.log(`📚 Question Quality: ${this.sessionStats.validQuestions}/${this.sessionStats.totalQuestions} questions valid (${validationRate}%)`);
     }
 
     separateQuestionsByDifficulty(questions, avoidQuestions) {
@@ -112,14 +189,12 @@ class QuestionLoader {
         for (const question of questions) {
             const questionKey = question.question.toLowerCase().trim();
             
-            // Skip if already used or should be avoided
             if (usedQuestions.has(questionKey) || avoidQuestions.has(questionKey)) {
                 continue;
             }
             
             usedQuestions.add(questionKey);
             
-            // Normalize difficulty and categorize
             const difficulty = (question.difficulty || 'medium').toLowerCase();
             
             if (difficulty === 'easy' || difficulty === 'beginner') {
@@ -127,20 +202,15 @@ class QuestionLoader {
             } else if (difficulty === 'hard' || difficulty === 'expert' || difficulty === 'difficult') {
                 separated.hard.push(question);
             } else {
-                // Default to medium for 'medium', 'normal', or unknown difficulties
                 separated.medium.push(question);
             }
         }
         
-        // Shuffle each pool
         this.shuffleArray(separated.easy);
         this.shuffleArray(separated.medium);
         this.shuffleArray(separated.hard);
         
-        console.log(`📊 Questions by Difficulty (after validation):`);
-        console.log(`   Easy: ${separated.easy.length}`);
-        console.log(`   Medium: ${separated.medium.length}`);
-        console.log(`   Hard: ${separated.hard.length}`);
+        console.log(`📊 Questions by Difficulty: Easy: ${separated.easy.length}, Medium: ${separated.medium.length}, Hard: ${separated.hard.length}`);
         
         return separated;
     }
@@ -174,12 +244,10 @@ class QuestionLoader {
         const quizQuestions = [];
         const usedQuestions = new Set();
         
-        // Add questions with proper progression
         this.addQuestionsFromPool(quizQuestions, fallbacks.easy, usedQuestions, 2, 'Easy (Fallback)');
         this.addQuestionsFromPool(quizQuestions, fallbacks.medium, usedQuestions, 4, 'Medium (Fallback)');
         this.addQuestionsFromPool(quizQuestions, fallbacks.hard, usedQuestions, 4, 'Hard (Fallback)');
         
-        // Add extra questions for rerolls
         const allRemaining = [
             ...fallbacks.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
             ...fallbacks.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
@@ -198,21 +266,16 @@ class QuestionLoader {
             hard: [...FALLBACK_QUESTIONS.Hard]
         };
         
-        // Filter out avoided and used questions
         Object.keys(fallbacks).forEach(difficulty => {
             fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
                 const questionKey = question.question.toLowerCase().trim();
                 return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
             });
             
-            // Shuffle each difficulty pool
             this.shuffleArray(fallbacks[difficulty]);
         });
         
-        console.log(`📚 Fallback Questions by Difficulty:`);
-        console.log(`   Easy: ${fallbacks.easy.length}`);
-        console.log(`   Medium: ${fallbacks.medium.length}`);
-        console.log(`   Hard: ${fallbacks.hard.length}`);
+        console.log(`📚 Fallback Questions: Easy: ${fallbacks.easy.length}, Medium: ${fallbacks.medium.length}, Hard: ${fallbacks.hard.length}`);
         
         return fallbacks;
     }
@@ -241,53 +304,114 @@ class QuestionLoader {
 
     async fetchFromAllAPIs(avoidQuestions) {
         const allQuestions = [];
+        let successfulCalls = 0;
+        let totalAttempts = 0;
         
-        // Add delays between API calls to avoid rate limiting
-        for (let i = 0; i < this.apiEndpoints.length; i++) {
-            const apiUrl = this.apiEndpoints[i];
+        console.log(`🚀 Starting optimized API fetching strategy...`);
+        
+        // Sort APIs by priority
+        const sortedApis = this.apiEndpoints.sort((a, b) => a.priority - b.priority);
+        
+        // Try each API with proper spacing and retries
+        for (const apiConfig of sortedApis) {
+            totalAttempts++;
             
             try {
-                const questions = await this.fetchFromSingleAPI(apiUrl, avoidQuestions, i + 1);
+                // Enforce minimum delay between API calls
+                await this.enforceRateLimit(apiConfig.name);
+                
+                console.log(`📡 Attempting ${apiConfig.name} (Priority ${apiConfig.priority})...`);
+                
+                const questions = await this.fetchFromSingleAPIWithRetry(apiConfig, avoidQuestions, totalAttempts);
+                
                 if (questions.length > 0) {
-                    console.log(`✅ API ${i + 1} (${this.getAPIName(apiUrl)}): ${questions.length} questions`);
+                    console.log(`✅ ${apiConfig.name}: ${questions.length} valid questions retrieved`);
                     allQuestions.push(...questions);
+                    successfulCalls++;
+                    
+                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay));
                 } else {
-                    console.log(`❌ API ${i + 1} (${this.getAPIName(apiUrl)}): No valid questions`);
+                    console.log(`⚠️ ${apiConfig.name}: No valid questions found`);
+                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay * 1.5));
                 }
                 
-                // Add delay between API calls to avoid rate limiting
-                if (i < this.apiEndpoints.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+                // Stop early if we have enough questions
+                if (allQuestions.length >= 15) {
+                    console.log(`🎯 Early stop: Got ${allQuestions.length} questions (target met)`);
+                    break;
                 }
                 
             } catch (error) {
-                console.log(`❌ API ${i + 1} (${this.getAPIName(apiUrl)}): Failed - ${error.message}`);
+                console.warn(`❌ ${apiConfig.name} failed after retries: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, apiConfig.delay * 2));
+            }
+        }
+        
+        console.log(`📊 API Fetch Summary: ${successfulCalls}/${totalAttempts} successful calls, ${allQuestions.length} total questions`);
+        
+        // Update session stats
+        this.sessionStats.totalCalls = totalAttempts;
+        this.sessionStats.successfulCalls = successfulCalls;
+        
+        this.shuffleArray(allQuestions);
+        return allQuestions;
+    }
+
+    async fetchFromSingleAPIWithRetry(apiConfig, avoidQuestions, attemptNumber) {
+        let lastError;
+        
+        for (let retry = 0; retry < apiConfig.maxRetries; retry++) {
+            try {
+                const questions = await this.fetchFromSingleAPI(apiConfig.url, avoidQuestions, attemptNumber, apiConfig.name);
+                return questions;
                 
-                // Add delay even on failure
-                if (i < this.apiEndpoints.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // Longer delay on failure
+            } catch (error) {
+                lastError = error;
+                
+                if (error.message.includes('429') || error.message.includes('rate')) {
+                    console.warn(`⚠️ Rate limited on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
+                    const backoffDelay = Math.min(apiConfig.delay * Math.pow(2, retry), 5000);
+                    await new Promise(resolve => setTimeout(resolve, backoffDelay));
+                } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+                    console.warn(`⚠️ Server error on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
+                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay));
+                } else {
+                    console.warn(`⚠️ ${apiConfig.name} error (no retry): ${error.message}`);
+                    break;
                 }
             }
         }
         
-        // Shuffle combined results
-        this.shuffleArray(allQuestions);
-        
-        return allQuestions;
+        throw lastError || new Error(`Failed after ${apiConfig.maxRetries} retries`);
     }
 
-    async fetchFromSingleAPI(apiUrl, avoidQuestions, apiNumber) {
+    async enforceRateLimit(apiName) {
+        const now = Date.now();
+        const lastCall = this.lastApiCall.get(apiName) || 0;
+        const timeSinceLastCall = now - lastCall;
+        
+        if (timeSinceLastCall < this.minDelayBetweenCalls) {
+            const waitTime = this.minDelayBetweenCalls - timeSinceLastCall;
+            console.log(`⏳ Rate limiting: waiting ${waitTime}ms for ${apiName}`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+        
+        this.lastApiCall.set(apiName, Date.now());
+    }
+
+    async fetchFromSingleAPI(apiUrl, avoidQuestions, apiNumber, apiName = null) {
         try {
-            console.log(`📡 API ${apiNumber}: Fetching from ${this.getAPIName(apiUrl)}`);
+            const displayName = apiName || this.getAPIName(apiUrl);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
             
             const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
                     'User-Agent': 'AnimeQuizBot/1.0',
-                    'Accept': 'application/json'
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
                 },
                 signal: controller.signal
             });
@@ -296,25 +420,37 @@ class QuestionLoader {
             
             if (!response.ok) {
                 if (response.status === 429) {
-                    console.warn(`⚠️ API ${apiNumber} rate limited (429), will use fallbacks`);
+                    throw new Error(`429 Rate Limited`);
+                } else if (response.status >= 500) {
+                    throw new Error(`${response.status} Server Error`);
                 } else {
-                    console.warn(`⚠️ API ${apiNumber} returned status ${response.status}`);
+                    throw new Error(`HTTP ${response.status}`);
                 }
-                return [];
             }
             
             const data = await response.json();
             const questions = this.parseAPIResponse(data, apiUrl, apiNumber);
             
+            if (!questions || questions.length === 0) {
+                console.log(`⚠️ ${displayName}: API returned no questions`);
+                return [];
+            }
+            
             // Filter and validate questions
             const validQuestions = questions.filter(q => this.isValidQuestion(q, avoidQuestions));
             
-            console.log(`✅ API ${apiNumber}: Got ${validQuestions.length}/${questions.length} valid questions`);
+            // Update session stats
+            this.sessionStats.totalQuestions += questions.length;
+            this.sessionStats.validQuestions += validQuestions.length;
+            
+            console.log(`📊 ${displayName}: ${validQuestions.length}/${questions.length} questions passed validation`);
             return validQuestions;
             
         } catch (error) {
-            console.warn(`⚠️ API ${apiNumber} (${this.getAPIName(apiUrl)}) failed: ${error.message}`);
-            return [];
+            if (error.name === 'AbortError') {
+                throw new Error('Request timeout');
+            }
+            throw error;
         }
     }
 
@@ -323,9 +459,15 @@ class QuestionLoader {
         
         try {
             if (apiUrl.includes('opentdb.com')) {
-                // OpenTDB format
+                if (data.response_code !== 0) {
+                    console.warn(`⚠️ OpenTDB API returned code ${data.response_code}`);
+                    return [];
+                }
+                
                 if (data.results && Array.isArray(data.results)) {
                     for (const item of data.results) {
+                        if (!item.question || !item.correct_answer) continue;
+                        
                         const question = {
                             question: this.cleanText(item.question),
                             answer: this.cleanText(item.correct_answer),
@@ -334,14 +476,17 @@ class QuestionLoader {
                             source: 'OpenTDB'
                         };
                         
-                        this.shuffleArray(question.options);
-                        questions.push(question);
+                        if (question.question.length > 0 && question.answer.length > 0 && question.options.length >= 4) {
+                            this.shuffleArray(question.options);
+                            questions.push(question);
+                        }
                     }
                 }
             } else if (apiUrl.includes('trivia-api.com')) {
-                // The Trivia API format
                 if (Array.isArray(data)) {
                     for (const item of data) {
+                        if (!item.question?.text || !item.correctAnswer) continue;
+                        
                         const question = {
                             question: this.cleanText(item.question.text),
                             answer: this.cleanText(item.correctAnswer),
@@ -350,13 +495,14 @@ class QuestionLoader {
                             source: 'TriviaAPI'
                         };
                         
-                        this.shuffleArray(question.options);
-                        questions.push(question);
+                        if (question.question.length > 0 && question.answer.length > 0 && question.options.length >= 4) {
+                            this.shuffleArray(question.options);
+                            questions.push(question);
+                        }
                     }
                 }
             } else if (apiUrl.includes('aniquizapi.vercel.app')) {
-                // AniQuizAPI format
-                if (data.question) {
+                if (data.question && data.answer) {
                     const question = {
                         question: this.cleanText(data.question),
                         answer: this.cleanText(data.answer),
@@ -365,36 +511,36 @@ class QuestionLoader {
                         source: 'AniQuizAPI'
                     };
                     
-                    // Ensure answer is in options
                     if (!question.options.includes(question.answer)) {
                         question.options.push(question.answer);
                     }
                     
-                    // Pad with anime-themed dummy options if needed
-                    const animeDummies = [
+                    const animeOptions = [
                         'Monkey D. Luffy', 'Naruto Uzumaki', 'Edward Elric', 'Light Yagami',
-                        'Ichigo Kurosaki', 'Natsu Dragneel', 'Eren Yeager', 'Goku',
-                        'Fire Magic', 'Water Technique', 'Lightning Style', 'Wind Blade'
+                        'Ichigo Kurosaki', 'Natsu Dragneel', 'Eren Yeager', 'Son Goku',
+                        'Fire Release', 'Water Style', 'Lightning Blade', 'Wind Scythe'
                     ];
                     
                     while (question.options.length < 4) {
-                        const availableDummy = animeDummies.find(opt => !question.options.includes(opt));
-                        if (availableDummy) {
-                            question.options.push(availableDummy);
+                        const availableOption = animeOptions.find(opt => !question.options.includes(opt));
+                        if (availableOption) {
+                            question.options.push(availableOption);
                         } else {
-                            question.options.push(`Option ${question.options.length}`);
+                            question.options.push(`Anime Option ${question.options.length}`);
                         }
                     }
                     
-                    this.shuffleArray(question.options);
-                    questions.push(question);
+                    if (question.question.length > 0 && question.answer.length > 0) {
+                        this.shuffleArray(question.options);
+                        questions.push(question);
+                    }
                 }
             }
             
-            console.log(`📡 API ${apiNumber} parsed ${questions.length} raw questions`);
+            console.log(`📝 Parsed ${questions.length} valid questions from API response`);
             
         } catch (error) {
-            console.error(`❌ Error parsing API ${apiNumber} response:`, error);
+            console.error(`❌ Error parsing API response:`, error);
         }
         
         return questions;
@@ -407,12 +553,10 @@ class QuestionLoader {
                 return false;
             }
             
-            // Ensure we have options
             if (!question.options || question.options.length < 2) {
                 return false;
             }
             
-            // Check if answer is in options
             if (!question.options.includes(question.answer)) {
                 return false;
             }
@@ -420,17 +564,14 @@ class QuestionLoader {
             const questionLower = question.question.toLowerCase();
             const questionKey = questionLower.trim();
             
-            // Check against avoid list
             if (avoidQuestions.has(questionKey)) {
                 return false;
             }
             
-            // Check question length
             if (question.question.length > 250) {
                 return false;
             }
             
-            // Check option lengths
             const hasLongOptions = question.options.some(opt => opt.length > 100);
             if (hasLongOptions) {
                 return false;
@@ -440,17 +581,12 @@ class QuestionLoader {
             
             // Strong anime indicators
             const strongAnimeIndicators = [
-                // Explicit anime keywords
                 'anime', 'manga', 'otaku', 'japanese animation',
-                // Anime-specific terms
                 'devil fruit', 'chakra', 'jutsu', 'quirk', 'stand', 'titan',
                 'soul reaper', 'hollow', 'bankai', 'shikai', 'zanpakuto',
                 'hokage', 'shinobi', 'ninja village', 'pirate king',
-                // Character types
                 'tsundere', 'yandere', 'kuudere', 'dandere', 'waifu', 'husbando',
-                // Cultural terms
                 'senpai', 'kouhai', 'sensei', 'chan', 'kun', 'sama',
-                // Series-specific
                 'dragon ball', 'one piece', 'naruto', 'bleach', 'attack on titan',
                 'my hero academia', 'death note', 'fullmetal alchemist'
             ];
@@ -482,7 +618,6 @@ class QuestionLoader {
 
             // ==================== REJECTION FILTERS ====================
             
-            // Reject obvious non-anime content
             const nonAnimeContent = [
                 'call of duty', 'minecraft', 'fortnite', 'overwatch',
                 'xbox', 'playstation', 'nintendo switch', 'pc game',
@@ -497,19 +632,16 @@ class QuestionLoader {
 
             // ==================== DECISION LOGIC ====================
             
-            // Accept if we have strong anime indicators
             if (hasStrongIndicators || hasAnimeTitles || hasAnimePattern) {
                 console.log(`✅ Accepting anime question (strong): ${question.question.substring(0, 60)}...`);
                 return true;
             }
 
-            // Accept if answers contain anime content and it's from a trusted source
             if (answersHaveAnime && (question.source === 'OpenTDB' || question.source === 'TriviaAPI' || question.source === 'AniQuizAPI')) {
                 console.log(`✅ Accepting anime question (weak + trusted): ${question.question.substring(0, 60)}...`);
                 return true;
             }
 
-            // Final quality checks
             const numberCount = (question.question.match(/\d+/g) || []).length;
             if (numberCount > 4) {
                 return false;
@@ -533,7 +665,6 @@ class QuestionLoader {
         this.shuffleArray(mediumQuestions);
         this.shuffleArray(hardQuestions);
         
-        // Calculate balanced distribution
         const easyCount = Math.min(6, Math.ceil(targetCount * 0.3));
         const mediumCount = Math.min(6, Math.ceil(targetCount * 0.4));
         const hardCount = targetCount - easyCount - mediumCount;
@@ -550,7 +681,6 @@ class QuestionLoader {
         });
         
         if (availableFallbacks.length < targetCount) {
-            // Add more questions from all categories
             const allFallbacks = [...easyQuestions, ...mediumQuestions, ...hardQuestions];
             this.shuffleArray(allFallbacks);
             
