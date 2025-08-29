@@ -94,6 +94,14 @@ class QuestionLoader {
         // Redis manager reference (will be set externally)
         this.redis = null;
         
+        // Session stats
+        this.sessionStats = {
+            totalCalls: 0,
+            successfulCalls: 0,
+            totalQuestions: 0,
+            validQuestions: 0
+        };
+        
         // Start systems
         this.startQueueProcessor();
         this.startPoolMonitoring();
@@ -129,7 +137,8 @@ class QuestionLoader {
             // Start generating API questions in background
             this.generateAllPoolsAsync();
             
-            console.log('✅ Question pools initialized');
+            console.log('✅ Question pools initialized with fallbacks');
+            console.log('🏭 Starting background API generation...');
             
         } catch (error) {
             console.error('❌ Error initializing question pools:', error);
@@ -329,8 +338,12 @@ class QuestionLoader {
             console.log(`⚡ Loading ${targetCount} questions instantly from pools...`);
             
             // Load pools from Redis if empty
-            if (this.questionPools.easy.length === 0) {
-                await this.loadPoolsFromRedis();
+            if (this.questionPools.easy.length === 0 && this.questionPools.medium.length === 0 && this.questionPools.hard.length === 0) {
+                const loaded = await this.loadPoolsFromRedis();
+                if (!loaded) {
+                    console.warn('⚠️ No pools found in Redis, initializing fallbacks...');
+                    this.loadFallbackIntoPools();
+                }
             }
             
             // Get questions from pools instantly
@@ -434,7 +447,7 @@ class QuestionLoader {
         }
         
         if (added < needed) {
-            console.warn(`⚠️ Could only add ${added}/${needed} ${difficultyLabel} questions`);
+            console.warn(`⚠️ Could only add ${added}/${needed} ${difficultyLabel} questions from pool`);
         }
         
         return added;
@@ -935,6 +948,109 @@ class QuestionLoader {
                 redisConnected: this.redis?.connected || false
             }
         };
+    }
+
+    // Get fallback questions with proper distribution
+    getFallbackQuestions(avoidQuestions, usedQuestions, targetCount = 13) {
+        const easyQuestions = [...FALLBACK_QUESTIONS.Easy];
+        const mediumQuestions = [...FALLBACK_QUESTIONS.Medium];
+        const hardQuestions = [...FALLBACK_QUESTIONS.Hard];
+        
+        this.shuffleArray(easyQuestions);
+        this.shuffleArray(mediumQuestions);
+        this.shuffleArray(hardQuestions);
+        
+        const easyCount = Math.min(6, Math.ceil(targetCount * 0.3));
+        const mediumCount = Math.min(6, Math.ceil(targetCount * 0.4));
+        const hardCount = targetCount - easyCount - mediumCount;
+        
+        const balancedQuestions = [
+            ...easyQuestions.slice(0, easyCount),
+            ...mediumQuestions.slice(0, mediumCount),
+            ...hardQuestions.slice(0, Math.max(hardCount, 0))
+        ];
+        
+        const availableFallbacks = balancedQuestions.filter(question => {
+            const questionKey = question.question.toLowerCase().trim();
+            return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
+        });
+        
+        if (availableFallbacks.length < targetCount) {
+            const allFallbacks = [...easyQuestions, ...mediumQuestions, ...hardQuestions];
+            this.shuffleArray(allFallbacks);
+            
+            for (const question of allFallbacks) {
+                if (availableFallbacks.length >= targetCount) break;
+                
+                const questionKey = question.question.toLowerCase().trim();
+                const isAlreadyIncluded = availableFallbacks.some(q => 
+                    q.question.toLowerCase().trim() === questionKey
+                );
+                
+                if (!isAlreadyIncluded) {
+                    availableFallbacks.push(question);
+                }
+            }
+        }
+        
+        this.shuffleArray(availableFallbacks);
+        return availableFallbacks.slice(0, targetCount);
+    }
+
+    // Build fallback questions with progression
+    buildFallbackQuestionsWithProgression(avoidQuestions, targetCount) {
+        console.log('🛡️ Building fallback questions with difficulty progression...');
+        
+        const fallbacks = this.getFallbackQuestionsByDifficulty(avoidQuestions, new Set());
+        const quizQuestions = [];
+        const usedQuestions = new Set();
+        
+        this.addQuestionsFromPool(quizQuestions, fallbacks.easy, usedQuestions, 2, 'Easy (Fallback)');
+        this.addQuestionsFromPool(quizQuestions, fallbacks.medium, usedQuestions, 4, 'Medium (Fallback)');
+        this.addQuestionsFromPool(quizQuestions, fallbacks.hard, usedQuestions, 4, 'Hard (Fallback)');
+        
+        const allRemaining = [
+            ...fallbacks.easy.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+            ...fallbacks.medium.filter(q => !usedQuestions.has(q.question.toLowerCase().trim())),
+            ...fallbacks.hard.filter(q => !usedQuestions.has(q.question.toLowerCase().trim()))
+        ];
+        this.shuffleArray(allRemaining);
+        this.addQuestionsFromPool(quizQuestions, allRemaining, usedQuestions, targetCount - quizQuestions.length, 'Extra (Fallback)');
+        
+        return quizQuestions;
+    }
+
+    // Get fallback questions by difficulty
+    getFallbackQuestionsByDifficulty(avoidQuestions, usedQuestions) {
+        const fallbacks = {
+            easy: [...FALLBACK_QUESTIONS.Easy],
+            medium: [...FALLBACK_QUESTIONS.Medium],
+            hard: [...FALLBACK_QUESTIONS.Hard]
+        };
+        
+        Object.keys(fallbacks).forEach(difficulty => {
+            fallbacks[difficulty] = fallbacks[difficulty].filter(question => {
+                const questionKey = question.question.toLowerCase().trim();
+                return !avoidQuestions.has(questionKey) && !usedQuestions.has(questionKey);
+            });
+            
+            this.shuffleArray(fallbacks[difficulty]);
+        });
+        
+        console.log(`📚 Fallback Questions: Easy: ${fallbacks.easy.length}, Medium: ${fallbacks.medium.length}, Hard: ${fallbacks.hard.length}`);
+        
+        return fallbacks;
+    }
+
+    // Log simple session stats
+    logSimpleStats() {
+        const successRate = this.sessionStats.totalCalls > 0 ? 
+            ((this.sessionStats.successfulCalls / this.sessionStats.totalCalls) * 100).toFixed(1) : '0.0';
+        const validationRate = this.sessionStats.totalQuestions > 0 ? 
+            ((this.sessionStats.validQuestions / this.sessionStats.totalQuestions) * 100).toFixed(1) : '0.0';
+
+        console.log(`📊 Session Summary: ${this.sessionStats.successfulCalls}/${this.sessionStats.totalCalls} API calls successful (${successRate}%)`);
+        console.log(`📚 Question Quality: ${this.sessionStats.validQuestions}/${this.sessionStats.totalQuestions} questions valid (${validationRate}%)`);
     }
 }
 
