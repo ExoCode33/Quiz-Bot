@@ -1,6 +1,6 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const QuestionLoader = require('../utils/QuestionLoader');
-const { TIER_COLORS, TIER_NAMES, FALLBACK_QUESTIONS } = require('../utils/constants');
+const { TIER_COLORS, TIER_NAMES, TIER_EMOJIS, TIER_DESCRIPTIONS, FALLBACK_QUESTIONS } = require('../utils/constants');
 
 class QuizManager {
     constructor(client, databaseManager, redisManager) {
@@ -512,11 +512,11 @@ class QuizManager {
             
             const embed = new EmbedBuilder()
                 .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#FF0000')
-                .setTitle(tier > 0 ? `🏆 Quiz Complete - ${TIER_NAMES[tier]}!` : '📝 Quiz Complete')
+                .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Quiz Complete - ${TIER_NAMES[tier]}!` : '📝 Quiz Complete')
                 .setDescription(
                     tier > 0 ? 
-                        `Congratulations! You've earned **${TIER_NAMES[tier]}** tier!` :
-                        'Better luck next time! Try again tomorrow.'
+                        `🏴‍☠️ **Congratulations, Pirate!** 🏴‍☠️\n\nYou've earned the **${TIER_NAMES[tier]}**!\n\n*${TIER_DESCRIPTIONS[tier]}*` :
+                        'Your journey on the Grand Line ends here today. Train harder and try again tomorrow, future pirate!'
                 )
                 .addFields(
                     {
@@ -530,8 +530,8 @@ class QuizManager {
                         inline: true
                     },
                     {
-                        name: '🎯 Tier Earned',
-                        value: tier > 0 ? `Tier ${tier} - ${TIER_NAMES[tier]}` : 'No tier earned',
+                        name: '🎯 Buff Earned',
+                        value: tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'No buff earned',
                         inline: true
                     },
                     {
@@ -541,7 +541,7 @@ class QuizManager {
                     }
                 )
                 .setFooter({ 
-                    text: `Next quiz available tomorrow • Completed at ${new Date().toLocaleTimeString()}` 
+                    text: `Next quest available tomorrow • Completed at ${new Date().toLocaleTimeString()}` 
                 })
                 .setTimestamp();
             
