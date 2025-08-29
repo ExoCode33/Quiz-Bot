@@ -1,9 +1,11 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('quiz')
-        .setDescription('⚔️ Take the daily anime quiz to earn powerful buffs!'),
+        .setDescription('📚 Take the daily anime quiz with Nico Robin to unlock ancient knowledge!'),
 
     async execute(interaction) {
         try {
@@ -13,7 +15,7 @@ module.exports = {
                 const channelMention = `<#${quizChannelId}>`;
                 
                 return await interaction.reply({
-                    content: `⚓ **Wrong Channel!**\n\nThe anime quiz is only available in ${channelMention}\n\nHead there to start your challenge!`,
+                    content: `🌸 **Wrong Library!**\n\nThe ancient knowledge quiz is only available in ${channelMention}\n\n*Head there to begin your scholarly journey!*`,
                     ephemeral: true
                 });
             }
@@ -31,7 +33,7 @@ module.exports = {
             // Check if user has active quiz
             if (interaction.quizManager.hasActiveQuiz(interaction.user.id, interaction.guild.id)) {
                 return await interaction.reply({
-                    content: '⚔️ **Active Quiz Detected**\n\nYou already have an ongoing quiz!\n\n*Complete your current quiz first.*',
+                    content: '📖 **Active Study Session**\n\nYou already have an ongoing quiz with me!\n\n*Complete your current session first, archaeologist.*',
                     ephemeral: true
                 });
             }
@@ -40,44 +42,66 @@ module.exports = {
             console.log(`🔄 Preloading questions for user ${interaction.user.id}...`);
             interaction.quizManager.preloadQuestions(interaction.user.id, interaction.guild.id).catch(console.error);
 
-            // Show quiz introduction
+            // Prepare the anime.gif attachment
+            let attachment = null;
+            const gifPath = path.join(process.cwd(), 'assets', 'images', 'anime.gif');
+            
+            try {
+                if (fs.existsSync(gifPath)) {
+                    attachment = new AttachmentBuilder(gifPath, { name: 'anime.gif' });
+                } else {
+                    console.warn('⚠️ anime.gif not found at:', gifPath);
+                }
+            } catch (error) {
+                console.warn('⚠️ Error loading anime.gif:', error.message);
+            }
+
+            // Show quiz introduction with Nico Robin theme
             const introEmbed = new EmbedBuilder()
-                .setColor('#FF6B35')
-                .setTitle('⚔️ Daily Anime Quiz')
-                .setDescription(`**Test your anime knowledge to earn powerful buffs!**`)
+                .setColor('#6B4E8D') // Nico Robin's purple theme
+                .setTitle('📚 Ancient Knowledge Quiz')
+                .setDescription(`**"Knowledge is a weapon. Are you ready to wield it?"**\n\n*Test your anime wisdom to unlock the secrets of ancient power!*`)
                 .addFields(
                     {
-                        name: '📋 How it Works',
-                        value: `🎯 Answer **10 anime questions**\n⏱️ **${process.env.QUESTION_TIME_LIMIT || 20} seconds** per question\n🏆 **Score determines your buff tier**\n🌅 **Resets daily** <t:${this.getNextResetTimestamp()}:t>`,
+                        name: '🔍 Archaeological Rules',
+                        value: `📜 Answer **10 anime questions** carefully\n⏳ **${process.env.QUESTION_TIME_LIMIT || 20} seconds** per question\n🏺 **Score determines ancient power gained**\n🌅 **Resets daily** <t:${this.getNextResetTimestamp()}:t>`,
                         inline: false
                     },
                     {
-                        name: '🎯 Buff Tiers',
-                        value: `⚪ **1**: Common Buff\n🟢 **2**: Uncommon Buff\n🔵 **3**: Rare Buff\n🟣 **4**: Epic Buff\n🟡 **5-6**: Legendary Buff\n🟠 **7-8**: Mythical Buff\n🔴 **9-10**: Divine Buff`,
+                        name: '🏺 Ancient Power Tiers',
+                        value: `⚪ **1**: Novice Scholar\n🟢 **2**: Apprentice Historian\n🔵 **3**: Skilled Archaeologist\n🟣 **4**: Expert Researcher\n🟡 **5-6**: Master of Poneglyphs\n🟠 **7-8**: Devil Child Wisdom\n🔴 **9-10**: Ohara's Legacy`,
                         inline: false
                     },
                     {
-                        name: '🎲 Special Features',
-                        value: `🔄 **3 Rerolls** per quiz\n⚡ **Instant Start** - questions preloaded\n📊 **Live Progress** tracking`,
+                        name: '📖 Special Abilities',
+                        value: `🎲 **3 Rerolls** per quiz\n⚡ **Instant Start** - knowledge preloaded\n📊 **Live Progress** - watch your growth\n🌸 **Hana Hana no Mi** enhancement`,
                         inline: false
                     }
                 )
-                .setFooter({ text: 'Ready to test your anime knowledge?' })
-                .setTimestamp();
+                .setFooter({ text: '"The desire to know is what makes us human." - Nico Robin' });
 
-            await interaction.reply({
-                embeds: [introEmbed],
+            // Add image if available
+            if (attachment) {
+                introEmbed.setImage('attachment://anime.gif');
+            }
+
+            const embedData = { embeds: [introEmbed] };
+            if (attachment) {
+                embedData.files = [attachment];
+            }
+
+            embedData.components = [{
+                type: 1,
                 components: [{
-                    type: 1,
-                    components: [{
-                        type: 2,
-                        style: 3,
-                        label: '⚔️ START QUIZ',
-                        custom_id: `start_quiz_${interaction.user.id}`,
-                        emoji: { name: '🎯' }
-                    }]
+                    type: 2,
+                    style: 1, // Primary style (blue)
+                    label: '📚 BEGIN QUIZ',
+                    custom_id: `start_quiz_${interaction.user.id}`,
+                    emoji: { name: '🌸' }
                 }]
-            });
+            }];
+
+            await interaction.reply(embedData);
 
             // Handle start quiz button
             const collector = interaction.channel.createMessageComponentCollector({
@@ -90,12 +114,13 @@ module.exports = {
                 await buttonInteraction.update({
                     embeds: [
                         new EmbedBuilder()
-                            .setColor('#FF9500')
-                            .setTitle('🚀 Starting Quiz...')
-                            .setDescription(`**Loading your anime quiz**\n\nQuestions are ready! Starting immediately...\n\n*Let's test your knowledge!*`)
-                            .setFooter({ text: 'Get ready to prove your anime expertise!' })
+                            .setColor('#8B4B9C')
+                            .setTitle('🌸 Hana Hana no Mi: Activate!')
+                            .setDescription(`**"Let me bloom your knowledge..."**\n\nNico Robin is preparing your anime quiz questions with care.\n\n*The ancient texts are ready for your examination!*`)
+                            .setFooter({ text: '"I want to live!" - Show me your determination!' })
                     ],
-                    components: []
+                    components: [],
+                    files: attachment ? [attachment] : []
                 });
 
                 // Start the quiz immediately with preloaded questions
@@ -109,11 +134,12 @@ module.exports = {
                             embeds: [
                                 new EmbedBuilder()
                                     .setColor('#708090')
-                                    .setTitle('⏰ Quiz Invitation Expired')
-                                    .setDescription('**Time\'s up!**\n\nYou didn\'t start the quiz in time.\n\n*Use `/quiz` again when you\'re ready!*')
-                                    .setFooter({ text: 'Challenge awaits when you return!' })
+                                    .setTitle('⏰ Study Session Expired')
+                                    .setDescription('**"Time has passed like the sands of Alabasta..."**\n\nYou didn\'t begin your quiz in time.\n\n*Use `/quiz` again when you\'re ready to learn!*')
+                                    .setFooter({ text: '"History repeats itself." - Try again when ready!' })
                             ],
-                            components: []
+                            components: [],
+                            files: []
                         });
                     } catch (error) {
                         // Ignore errors when editing expired interactions
@@ -125,7 +151,7 @@ module.exports = {
             console.error('Error in quiz command:', error);
             
             const errorMessage = {
-                content: '💀 **Error**\n\nSomething went wrong while preparing your quiz.\n\n*Please try again!*',
+                content: '💀 **"Something went wrong in the library..."**\n\nNico Robin encountered an error while preparing your quiz.\n\n*Please try again, archaeologist!*',
                 ephemeral: true
             };
 
@@ -186,30 +212,71 @@ module.exports = {
         // Get next reset time
         const nextReset = interaction.resetManager.getNextResetTime();
         
+        // Prepare the anime.gif attachment
+        let attachment = null;
+        const gifPath = path.join(process.cwd(), 'assets', 'images', 'anime.gif');
+        
+        try {
+            if (fs.existsSync(gifPath)) {
+                attachment = new AttachmentBuilder(gifPath, { name: 'anime.gif' });
+            }
+        } catch (error) {
+            console.warn('⚠️ Error loading anime.gif for completion message:', error.message);
+        }
+        
         const embed = new EmbedBuilder()
-            .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-            .setTitle('📋 Today\'s Quiz Complete')
-            .setDescription('**You\'ve already completed today\'s quiz!**')
+            .setColor(tier > 0 ? TIER_COLORS[tier] || '#6B4E8D' : '#808080')
+            .setTitle('📚 Today\'s Knowledge Acquired')
+            .setDescription('**"You\'ve already studied with me today, archaeologist."**\n\n*Your wisdom has been recorded in the ancient texts.*')
             .addFields(
                 {
-                    name: '⚔️ Your Results',
-                    value: `**Score:** ${completion.score}/10\n**Buff:** ${tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'None'}`,
+                    name: '🔍 Your Archaeological Results',
+                    value: `**Knowledge Score:** ${completion.score}/10\n**Ancient Power:** ${tier > 0 ? `${TIER_EMOJIS[tier]} ${this.getNicoRobinTierName(tier)}` : 'None'}`,
                     inline: true
                 },
                 {
-                    name: '🌅 Next Quiz',
-                    value: `**Available:** <t:${nextReset.unix}:R>\n**Reset:** ${process.env.DAILY_RESET_HOUR_EDT || 0}:${(process.env.DAILY_RESET_MINUTE_EDT || 30).toString().padStart(2, '0')} EDT`,
+                    name: '🌅 Next Study Session',
+                    value: `**Available:** <t:${nextReset.unix}:R>\n**Library Opens:** ${process.env.DAILY_RESET_HOUR_EDT || 0}:${(process.env.DAILY_RESET_MINUTE_EDT || 30).toString().padStart(2, '0')} EDT`,
                     inline: true
                 },
                 {
-                    name: '🏆 Current Status',
-                    value: tier > 0 ? `You currently wield the **${TIER_NAMES[tier]}**!` : '*Train harder tomorrow!*',
+                    name: '🏺 Current Wisdom Level',
+                    value: tier > 0 ? 
+                        `You currently possess **${this.getNicoRobinTierName(tier)}**!\n\n*"Knowledge is never a burden."*` : 
+                        '*Continue studying to unlock ancient powers!*\n\n*"Even a small mistake can lead to great discoveries."*',
                     inline: false
                 }
             )
-            .setFooter({ text: 'Return tomorrow for a new quiz!' })
-            .setTimestamp();
+            .setFooter({ text: '"The books I read in my childhood were my treasures." - Return tomorrow!' });
+
+        // Add image if available
+        if (attachment) {
+            embed.setImage('attachment://anime.gif');
+        }
+
+        const replyData = { embeds: [embed], ephemeral: true };
+        if (attachment) {
+            replyData.files = [attachment];
+        }
         
-        return await interaction.reply({ embeds: [embed], ephemeral: true });
+        return await interaction.reply(replyData);
+    },
+
+    getNicoRobinTierName(tier) {
+        const nicoRobinTiers = {
+            0: 'No Ancient Knowledge',
+            1: 'Novice Scholar',
+            2: 'Apprentice Historian', 
+            3: 'Skilled Archaeologist',
+            4: 'Expert Researcher',
+            5: 'Master of Poneglyphs',
+            6: 'Master of Poneglyphs',
+            7: 'Devil Child Wisdom',
+            8: 'Devil Child Wisdom',
+            9: 'Ohara\'s Legacy',
+            10: 'Ohara\'s Legacy'
+        };
+        
+        return nicoRobinTiers[tier] || 'Unknown Power';
     }
 };
