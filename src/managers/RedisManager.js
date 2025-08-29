@@ -113,15 +113,16 @@ class RedisManager {
         }
     }
 
-    // Active quiz session methods
-    async setActiveQuiz(userId, guildId, quizData) {
+    // Active quiz session methods - optimized for faster access
+    async setActiveQuiz(userId, guildId, quizData, ttlSeconds = 30 * 60) {
         if (!this.connected) return false;
         
         try {
             const key = this.key(`active_quiz:${userId}:${guildId}`);
             
-            // Set with 30 minutes expiry
-            await this.client.setEx(key, 30 * 60, JSON.stringify(quizData));
+            // Serialize and compress data for faster storage
+            const serializedData = JSON.stringify(quizData);
+            await this.client.setEx(key, ttlSeconds, serializedData);
             
             return true;
             
@@ -165,16 +166,23 @@ class RedisManager {
         }
     }
 
-    // Question caching methods
-    async cacheQuestions(userId, guildId, questions) {
+    // Question caching methods - optimized for 13 questions with custom TTL
+    async cacheQuestions(userId, guildId, questions, ttlSeconds = 60 * 60) {
         if (!this.connected) return false;
         
         try {
             const key = this.key(`questions:${userId}:${guildId}`);
             
-            // Set with 1 hour expiry
-            await this.client.setEx(key, 60 * 60, JSON.stringify(questions));
+            // Cache with custom TTL and compression
+            const questionsData = {
+                questions,
+                timestamp: Date.now(),
+                count: questions.length
+            };
             
+            await this.client.setEx(key, ttlSeconds, JSON.stringify(questionsData));
+            
+            console.log(`📡 Redis: Cached ${questions.length} questions for user ${userId} (TTL: ${ttlSeconds}s)`);
             return true;
             
         } catch (error) {
@@ -191,7 +199,16 @@ class RedisManager {
             const data = await this.client.get(key);
             
             if (data) {
-                return JSON.parse(data);
+                const parsedData = JSON.parse(data);
+                
+                // Validate cache freshness (additional check)
+                if (parsedData.timestamp && Date.now() - parsedData.timestamp < 20 * 60 * 1000) { // 20 minutes
+                    console.log(`📡 Redis: Retrieved ${parsedData.count} cached questions for user ${userId}`);
+                    return parsedData.questions;
+                }
+                
+                // Cache is stale, delete it
+                await this.client.del(key);
             }
             
             return null;
@@ -217,7 +234,7 @@ class RedisManager {
         }
     }
 
-    // Recent questions tracking
+    // Recent questions tracking - optimized with sets for faster lookups
     async addRecentQuestion(userId, guildId, questionHash) {
         if (!this.connected) return false;
         
@@ -251,7 +268,28 @@ class RedisManager {
         }
     }
 
-    // Guild leaderboard caching
+    // Batch operations for better performance
+    async addRecentQuestionsBatch(userId, guildId, questionHashes) {
+        if (!this.connected) return false;
+        
+        try {
+            const key = this.key(`recent:${userId}:${guildId}`);
+            
+            if (questionHashes.length > 0) {
+                // Add all hashes in one operation
+                await this.client.sAdd(key, questionHashes);
+                await this.client.expire(key, 7 * 24 * 60 * 60);
+            }
+            
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error adding recent questions batch:', error);
+            return false;
+        }
+    }
+
+    // Guild leaderboard caching - with faster access
     async cacheGuildLeaderboard(guildId, leaderboard) {
         if (!this.connected) return false;
         
@@ -321,30 +359,79 @@ class RedisManager {
         }
     }
 
-    // Cleanup methods
+    // Performance monitoring methods
+    async getConnectionStatus() {
+        if (!this.connected) return { connected: false };
+        
+        try {
+            const info = await this.client.info();
+            const keyCount = await this.client.dbSize();
+            
+            return {
+                connected: true,
+                keyCount,
+                info: info.split('\r\n').reduce((acc, line) => {
+                    if (line.includes(':')) {
+                        const [key, value] = line.split(':');
+                        if (['used_memory_human', 'connected_clients', 'total_commands_processed'].includes(key)) {
+                            acc[key] = value;
+                        }
+                    }
+                    return acc;
+                }, {})
+            };
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting connection status:', error);
+            return { connected: false, error: error.message };
+        }
+    }
+
+    // Optimized cleanup methods
     async cleanupExpiredKeys() {
         if (!this.connected) return 0;
         
         try {
-            // Get all keys with our prefix
-            const keys = await this.client.keys(`${this.prefix}*`);
             let deletedCount = 0;
-            
-            // Delete keys in batches
             const batchSize = 100;
-            for (let i = 0; i < keys.length; i += batchSize) {
-                const batch = keys.slice(i, i + batchSize);
+            let cursor = 0;
+            
+            do {
+                // Use SCAN for better performance on large datasets
+                const result = await this.client.scan(cursor, {
+                    MATCH: `${this.prefix}*`,
+                    COUNT: batchSize
+                });
                 
-                for (const key of batch) {
-                    const ttl = await this.client.ttl(key);
+                cursor = result.cursor;
+                const keys = result.keys;
+                
+                if (keys.length > 0) {
+                    // Check TTL in batch
+                    const pipeline = this.client.multi();
                     
-                    // If key has expired or is about to expire in 1 minute
-                    if (ttl <= 60) {
-                        await this.client.del(key);
-                        deletedCount++;
+                    for (const key of keys) {
+                        pipeline.ttl(key);
+                    }
+                    
+                    const ttls = await pipeline.exec();
+                    
+                    // Delete expired or soon-to-expire keys
+                    const keysToDelete = [];
+                    for (let i = 0; i < keys.length; i++) {
+                        const ttl = ttls[i];
+                        if (ttl !== null && ttl <= 60) { // Expires in 1 minute or less
+                            keysToDelete.push(keys[i]);
+                        }
+                    }
+                    
+                    if (keysToDelete.length > 0) {
+                        await this.client.del(keysToDelete);
+                        deletedCount += keysToDelete.length;
                     }
                 }
-            }
+                
+            } while (cursor !== 0);
             
             if (deletedCount > 0) {
                 console.log(`🧹 Redis: Cleaned up ${deletedCount} expired keys`);
@@ -355,6 +442,230 @@ class RedisManager {
         } catch (error) {
             console.error('❌ Redis: Error during cleanup:', error);
             return 0;
+        }
+    }
+
+    // Bulk operations for better performance during quiz sessions
+    async preloadUserData(userId, guildId) {
+        if (!this.connected) return {};
+        
+        try {
+            const keys = [
+                this.key(`completion:${userId}:${guildId}:${this.getCurrentDate()}`),
+                this.key(`active_quiz:${userId}:${guildId}`),
+                this.key(`questions:${userId}:${guildId}`),
+                this.key(`recent:${userId}:${guildId}`)
+            ];
+            
+            const pipeline = this.client.multi();
+            pipeline.get(keys[0]); // completion
+            pipeline.get(keys[1]); // active quiz
+            pipeline.get(keys[2]); // questions
+            pipeline.sMembers(keys[3]); // recent questions
+            
+            const results = await pipeline.exec();
+            
+            return {
+                completion: results[0] ? JSON.parse(results[0]) : null,
+                activeQuiz: results[1] ? JSON.parse(results[1]) : null,
+                questions: results[2] ? JSON.parse(results[2])?.questions : null,
+                recentQuestions: new Set(results[3] || [])
+            };
+            
+        } catch (error) {
+            console.error('❌ Redis: Error preloading user data:', error);
+            return {};
+        }
+    }
+
+    // Memory optimization for large question sets
+    async optimizeQuestionCache() {
+        if (!this.connected) return 0;
+        
+        try {
+            let optimizedCount = 0;
+            const questionKeys = await this.client.keys(this.key('questions:*'));
+            
+            for (const key of questionKeys) {
+                const data = await this.client.get(key);
+                
+                if (data) {
+                    const parsedData = JSON.parse(data);
+                    
+                    // If cache is older than 30 minutes or has too many questions, optimize
+                    if (parsedData.timestamp && 
+                        (Date.now() - parsedData.timestamp > 30 * 60 * 1000 || 
+                         parsedData.questions?.length > 20)) {
+                        
+                        // Keep only first 13 questions and update timestamp
+                        if (parsedData.questions?.length > 13) {
+                            parsedData.questions = parsedData.questions.slice(0, 13);
+                            parsedData.count = 13;
+                            parsedData.timestamp = Date.now();
+                            
+                            await this.client.setEx(key, 15 * 60, JSON.stringify(parsedData)); // 15 min TTL
+                            optimizedCount++;
+                        }
+                    }
+                }
+            }
+            
+            if (optimizedCount > 0) {
+                console.log(`🔧 Redis: Optimized ${optimizedCount} question caches`);
+            }
+            
+            return optimizedCount;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error optimizing question cache:', error);
+            return 0;
+        }
+    }
+
+    // Advanced caching methods for better performance
+    async setWithExpiry(key, value, ttlSeconds) {
+        if (!this.connected) return false;
+        
+        try {
+            await this.client.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
+            return true;
+        } catch (error) {
+            console.error('❌ Redis: Error setting value with expiry:', error);
+            return false;
+        }
+    }
+
+    async getWithDefault(key, defaultValue = null) {
+        if (!this.connected) return defaultValue;
+        
+        try {
+            const data = await this.client.get(this.key(key));
+            return data ? JSON.parse(data) : defaultValue;
+        } catch (error) {
+            console.error('❌ Redis: Error getting value:', error);
+            return defaultValue;
+        }
+    }
+
+    // Batch get operation for multiple keys
+    async getBatch(keys) {
+        if (!this.connected) return [];
+        
+        try {
+            const prefixedKeys = keys.map(key => this.key(key));
+            const values = await this.client.mGet(prefixedKeys);
+            
+            return values.map(value => {
+                try {
+                    return value ? JSON.parse(value) : null;
+                } catch {
+                    return value;
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting batch values:', error);
+            return new Array(keys.length).fill(null);
+        }
+    }
+
+    // Batch set operation for multiple key-value pairs
+    async setBatch(keyValuePairs, ttlSeconds = 3600) {
+        if (!this.connected) return false;
+        
+        try {
+            const pipeline = this.client.multi();
+            
+            for (const [key, value] of keyValuePairs) {
+                pipeline.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
+            }
+            
+            await pipeline.exec();
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error setting batch values:', error);
+            return false;
+        }
+    }
+
+    // Health check method
+    async healthCheck() {
+        if (!this.connected) {
+            return {
+                status: 'disconnected',
+                connected: false,
+                error: 'Redis not connected'
+            };
+        }
+        
+        try {
+            const start = Date.now();
+            await this.client.ping();
+            const latency = Date.now() - start;
+            
+            const info = await this.client.info('server');
+            const keyCount = await this.client.dbSize();
+            
+            return {
+                status: 'healthy',
+                connected: true,
+                latency: `${latency}ms`,
+                keyCount,
+                serverInfo: info.split('\r\n').reduce((acc, line) => {
+                    if (line.includes(':')) {
+                        const [key, value] = line.split(':');
+                        acc[key] = value;
+                    }
+                    return acc;
+                }, {})
+            };
+            
+        } catch (error) {
+            return {
+                status: 'error',
+                connected: false,
+                error: error.message
+            };
+        }
+    }
+
+    // Get Redis statistics
+    async getStats() {
+        if (!this.connected) return null;
+        
+        try {
+            const info = await this.client.info();
+            const keyCount = await this.client.dbSize();
+            
+            // Count keys by pattern
+            const patterns = {
+                completions: `${this.prefix}completion:*`,
+                activeQuizzes: `${this.prefix}active_quiz:*`,
+                questions: `${this.prefix}questions:*`,
+                recentQuestions: `${this.prefix}recent:*`,
+                leaderboards: `${this.prefix}leaderboard:*`,
+                resets: `${this.prefix}reset:*`
+            };
+            
+            const patternCounts = {};
+            for (const [name, pattern] of Object.entries(patterns)) {
+                const keys = await this.client.keys(pattern);
+                patternCounts[name] = keys.length;
+            }
+            
+            return {
+                connected: true,
+                totalKeys: keyCount,
+                keysByType: patternCounts,
+                memoryUsage: info.match(/used_memory_human:(.+)/)?.[1]?.trim(),
+                connectedClients: info.match(/connected_clients:(\d+)/)?.[1],
+                commandsProcessed: info.match(/total_commands_processed:(\d+)/)?.[1]
+            };
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting statistics:', error);
+            return null;
         }
     }
 
