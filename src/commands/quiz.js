@@ -44,7 +44,7 @@ module.exports = {
 
             // Prepare the anime.gif attachment
             let attachment = null;
-            const gifPath = path.join(process.cwd(), 'assets', 'images', 'anime.gif');
+            const gifPath = path.join(process.cwd(), 'assets', 'anime.gif');
             
             try {
                 if (fs.existsSync(gifPath)) {
@@ -214,7 +214,7 @@ module.exports = {
         
         // Prepare the anime.gif attachment
         let attachment = null;
-        const gifPath = path.join(process.cwd(), 'assets', 'images', 'anime.gif');
+        const gifPath = path.join(process.cwd(), 'assets', 'anime.gif');
         
         try {
             if (fs.existsSync(gifPath)) {
