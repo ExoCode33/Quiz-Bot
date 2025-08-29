@@ -1,5 +1,6 @@
 // Tier colors for embeds (One Piece theme)
 const TIER_COLORS = {
+    0: '#808080',   // No tier - Gray
     1: '#FFFFFF',   // Common - White
     2: '#4CAF50',   // Uncommon - Green
     3: '#2196F3',   // Rare - Blue
@@ -12,10 +13,11 @@ const TIER_COLORS = {
     10: '#F44336'   // Divine - Red
 };
 
-// Tier names (One Piece theme)
+// Tier names (One Piece theme) - Score-based mapping
 const TIER_NAMES = {
+    0: 'No Power',
     1: 'Common Buff',
-    2: 'Uncommon Buff',
+    2: 'Uncommon Buff', 
     3: 'Rare Buff',
     4: 'Epic Buff',
     5: 'Legendary Buff',
@@ -26,8 +28,9 @@ const TIER_NAMES = {
     10: 'Divine Buff'
 };
 
-// Tier emojis (matching your requirements)
+// Tier emojis (matching score requirements)
 const TIER_EMOJIS = {
+    0: '💀',  // No power
     1: '⚪',  // Common
     2: '🟢',  // Uncommon
     3: '🔵',  // Rare
@@ -40,18 +43,19 @@ const TIER_EMOJIS = {
     10: '🔴' // Divine
 };
 
-// One Piece themed descriptions
+// One Piece themed descriptions (score-based)
 const TIER_DESCRIPTIONS = {
-    1: 'A common pirate\'s blessing - every journey starts here',
-    2: 'An uncommon surge of power flows through you',
-    3: 'A rare treasure of the Grand Line enhances your abilities',
-    4: 'Epic power worthy of a Supernova pirate',
-    5: 'Legendary might that rivals the Yonko themselves',
-    6: 'Legendary supremacy that shakes the New World',
-    7: 'Mythical transcendence beyond mortal limits',
-    8: 'Mythical dominance that defies the heavens',
-    9: 'Divine power that rivals the World Government',
-    10: 'Divine perfection - you\'ve reached the pinnacle of power'
+    0: 'Your journey ends here - even the greatest pirates face defeat sometimes',
+    1: 'A common pirate\'s blessing - every legendary journey starts with a single step on the Grand Line',
+    2: 'An uncommon surge of power flows through you - the sea recognizes your growing potential',
+    3: 'A rare treasure of the Grand Line enhances your abilities - you\'re becoming a notable pirate',
+    4: 'Epic power worthy of a Supernova pirate - your name begins to spread across the seas',
+    5: 'Legendary might that rivals the Yonko themselves - the New World trembles at your presence',
+    6: 'Legendary supremacy that shakes the very foundations of the Grand Line itself',
+    7: 'Mythical transcendence beyond mortal limits - even the World Government takes notice',
+    8: 'Mythical dominance that defies the heavens - you stand among the greatest pirates in history',
+    9: 'Divine power that rivals the ancient weapons themselves - the entire world knows your name',
+    10: 'Divine perfection - you\'ve achieved the pinnacle of pirate mastery, rivaling the Pirate King himself!'
 };
 
 // Keywords that indicate anime content
