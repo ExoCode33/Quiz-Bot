@@ -14,6 +14,9 @@ class QuizManager {
         
         // Time limit intervals
         this.timeIntervals = new Map();
+        
+        // Preloaded questions cache
+        this.preloadedQuestions = new Map();
     }
 
     // Check if user already completed quiz today
@@ -37,6 +40,80 @@ class QuizManager {
         }
     }
 
+    // Preload questions for instant quiz start
+    async preloadQuestions(userId, guildId) {
+        try {
+            const userKey = `${userId}_${guildId}`;
+            
+            // Check if already preloaded
+            if (this.preloadedQuestions.has(userKey)) {
+                const cached = this.preloadedQuestions.get(userKey);
+                // Check if cache is still valid (less than 5 minutes old)
+                if (Date.now() - cached.timestamp < 5 * 60 * 1000) {
+                    console.log(`📋 Using preloaded questions for user ${userId}`);
+                    return cached.questions;
+                }
+            }
+            
+            // Check Redis cache
+            if (this.redis?.connected) {
+                const cachedQuestions = await this.redis.getCachedQuestions(userId, guildId);
+                if (cachedQuestions && cachedQuestions.length >= 13) {
+                    console.log(`📡 Using Redis cached questions for user ${userId}`);
+                    // Cache in memory for faster access
+                    this.preloadedQuestions.set(userKey, {
+                        questions: cachedQuestions,
+                        timestamp: Date.now()
+                    });
+                    return cachedQuestions;
+                }
+            }
+
+            // Get recent questions to avoid
+            const recentQuestions = await this.getRecentQuestions(userId, guildId);
+            
+            // Load 13 questions (10 + 3 for rerolls)
+            const questions = await this.questionLoader.loadQuestions(recentQuestions, 13);
+            
+            if (questions.length >= 10) {
+                // Cache in Redis
+                if (this.redis?.connected) {
+                    await this.redis.cacheQuestions(userId, guildId, questions, 15 * 60); // 15 minutes cache
+                }
+                
+                // Cache in memory
+                this.preloadedQuestions.set(userKey, {
+                    questions: questions,
+                    timestamp: Date.now()
+                });
+                
+                // Save question hashes to history (async)
+                this.saveQuestionsToHistory(userId, guildId, questions).catch(console.error);
+                
+                console.log(`✅ Preloaded ${questions.length} questions for user ${userId}`);
+                return questions;
+            }
+
+            return [];
+            
+        } catch (error) {
+            console.error('Error preloading questions:', error);
+            return [];
+        }
+    }
+
+    // Save questions to history asynchronously
+    async saveQuestionsToHistory(userId, guildId, questions) {
+        for (const question of questions) {
+            try {
+                const questionHash = this.createQuestionHash(question.question);
+                await this.saveQuestionToHistory(userId, guildId, questionHash, question.question);
+            } catch (error) {
+                console.error('Error saving question to history:', error);
+            }
+        }
+    }
+
     // Start a new quiz
     async startQuiz(interaction, userId, guildId) {
         try {
@@ -49,37 +126,38 @@ class QuizManager {
             // Check if already has active quiz
             if (this.hasActiveQuiz(userId, guildId)) {
                 return await interaction.editReply({
-                    content: '❌ **Active Quest Detected**\n\nYou already have an active challenge. Complete it first!',
+                    content: '❌ **Active Quiz Detected**\n\nYou already have an active quiz. Complete it first!',
                     components: []
                 });
             }
 
-            // Load questions
-            const questions = await this.loadQuestions(userId, guildId);
+            // Use preloaded questions for instant start
+            const questions = await this.preloadQuestions(userId, guildId);
             if (!questions || questions.length < 10) {
                 return await interaction.editReply({
-                    content: '❌ **Failed to Load Questions**\n\nUnable to prepare your challenge. Please try again later!',
+                    content: '❌ **Failed to Load Questions**\n\nUnable to prepare your quiz. Please try again later!',
                     components: []
                 });
             }
 
-            // Initialize quiz session
+            // Initialize quiz session with first 10 questions
             const quizSession = {
                 userId,
                 guildId,
-                questions,
+                questions: questions.slice(0, 10), // Use first 10 for quiz
+                extraQuestions: questions.slice(10), // Keep extras for rerolls
                 currentQuestion: 0,
                 score: 0,
                 answers: [],
                 startTime: Date.now(),
                 timeRemaining: parseInt(process.env.QUESTION_TIME_LIMIT) || 20,
-                rerollsUsed: 0 // Track total rerolls used across all questions
+                rerollsUsed: 0
             };
 
             // Save quiz session
             await this.saveQuizSession(userId, guildId, quizSession);
 
-            // Start first question
+            // Start first question immediately
             await this.askQuestion(interaction, quizSession);
 
         } catch (error) {
@@ -92,54 +170,21 @@ class QuizManager {
     }
 
     async loadQuestions(userId, guildId) {
-        try {
-            // Check cache first
-            if (this.redis?.connected) {
-                const cachedQuestions = await this.redis.getCachedQuestions(userId, guildId);
-                if (cachedQuestions) {
-                    console.log(`📡 Using cached questions for user ${userId}`);
-                    return cachedQuestions;
-                }
-            }
-
-            // Get recent questions to avoid
-            const recentQuestions = await this.getRecentQuestions(userId, guildId);
-            
-            // Load new questions
-            const questions = await this.questionLoader.loadQuestions(recentQuestions);
-            
-            if (questions.length >= 10) {
-                // Cache questions
-                if (this.redis?.connected) {
-                    await this.redis.cacheQuestions(userId, guildId, questions);
-                }
-                
-                // Save question hashes to history
-                for (const question of questions) {
-                    const questionHash = this.createQuestionHash(question.question);
-                    await this.saveQuestionToHistory(userId, guildId, questionHash, question.question);
-                }
-            }
-
-            return questions;
-            
-        } catch (error) {
-            console.error('Error loading questions:', error);
-            return [];
-        }
+        // This method is kept for backward compatibility but now uses preloadQuestions
+        return await this.preloadQuestions(userId, guildId);
     }
 
     async getRecentQuestions(userId, guildId) {
         try {
             const recentSet = new Set();
             
-            // Get from Redis
+            // Get from Redis (faster)
             if (this.redis?.connected) {
                 const redisRecent = await this.redis.getRecentQuestions(userId, guildId);
                 redisRecent.forEach(hash => recentSet.add(hash));
             }
             
-            // Get from database
+            // Get from database (more comprehensive)
             const dbRecent = await this.db.getRecentQuestions(userId, guildId);
             dbRecent.forEach(row => {
                 recentSet.add(row.question_hash);
@@ -156,13 +201,13 @@ class QuizManager {
 
     async saveQuestionToHistory(userId, guildId, questionHash, questionText) {
         try {
-            // Save to Redis
+            // Save to Redis (async, don't wait)
             if (this.redis?.connected) {
-                await this.redis.addRecentQuestion(userId, guildId, questionHash);
+                this.redis.addRecentQuestion(userId, guildId, questionHash).catch(console.error);
             }
             
-            // Save to database
-            await this.db.saveQuestionHistory(userId, guildId, questionHash, questionText);
+            // Save to database (async, don't wait)
+            this.db.saveQuestionHistory(userId, guildId, questionHash, questionText).catch(console.error);
             
         } catch (error) {
             console.error('Error saving question to history:', error);
@@ -184,9 +229,9 @@ class QuizManager {
 
     async saveQuizSession(userId, guildId, session) {
         try {
-            // Save to Redis
+            // Save to Redis with shorter expiry for faster access
             if (this.redis?.connected) {
-                await this.redis.setActiveQuiz(userId, guildId, session);
+                await this.redis.setActiveQuiz(userId, guildId, session, 20 * 60); // 20 minutes
             }
             
             // Fallback to memory
@@ -199,16 +244,23 @@ class QuizManager {
 
     async getQuizSession(userId, guildId) {
         try {
-            // Check Redis first
+            // Check memory first (fastest)
+            const memorySession = this.activeQuizzes.get(`${userId}_${guildId}`);
+            if (memorySession) {
+                return memorySession;
+            }
+            
+            // Check Redis
             if (this.redis?.connected) {
                 const session = await this.redis.getActiveQuiz(userId, guildId);
                 if (session) {
+                    // Cache in memory
+                    this.activeQuizzes.set(`${userId}_${guildId}`, session);
                     return session;
                 }
             }
             
-            // Fallback to memory
-            return this.activeQuizzes.get(`${userId}_${guildId}`) || null;
+            return null;
             
         } catch (error) {
             console.error('Error getting quiz session:', error);
@@ -218,11 +270,7 @@ class QuizManager {
 
     hasActiveQuiz(userId, guildId) {
         // Check memory first (faster)
-        if (this.activeQuizzes.has(`${userId}_${guildId}`)) {
-            return true;
-        }
-        
-        return false;
+        return this.activeQuizzes.has(`${userId}_${guildId}`);
     }
 
     async askQuestion(interaction, session) {
@@ -282,17 +330,17 @@ class QuizManager {
                 new ButtonBuilder()
                     .setCustomId(`answer_${session.userId}_${index}_${option === question.answer}`)
                     .setLabel(option.substring(0, 65))
-                    .setStyle(ButtonStyle.Success) // All green buttons
+                    .setStyle(ButtonStyle.Success)
                     .setEmoji(buttonEmojis[index])
             );
 
-            // Add reroll button if rerolls available
+            // Add reroll button if rerolls available and extra questions exist
             const components = [
                 new ActionRowBuilder().addComponents(buttons.slice(0, 2)),
                 new ActionRowBuilder().addComponents(buttons.slice(2, 4))
             ];
 
-            if (session.rerollsUsed < 3) {
+            if (session.rerollsUsed < 3 && session.extraQuestions && session.extraQuestions.length > 0) {
                 const rerollButton = new ButtonBuilder()
                     .setCustomId(`reroll_${session.userId}`)
                     .setLabel(`Reroll Question (${session.rerollsUsed}/3)`)
@@ -437,56 +485,29 @@ class QuizManager {
         try {
             await buttonInteraction.deferUpdate();
             
-            // Increment reroll counter
-            session.rerollsUsed++;
-            
-            console.log(`Reroll used by ${session.userId}: ${session.rerollsUsed}/3`);
-            
-            // Get a new question to replace the current one
-            const newQuestion = await this.getNewQuestion(session);
-            if (newQuestion) {
-                session.questions[session.currentQuestion] = newQuestion;
-                console.log(`✅ Rerolled question ${session.currentQuestion + 1} for user ${session.userId}`);
-            } else {
-                console.warn(`⚠️ Could not find new question for reroll, keeping original`);
+            // Check if extra questions are available
+            if (!session.extraQuestions || session.extraQuestions.length === 0) {
+                return await buttonInteraction.followUp({
+                    content: '❌ No more questions available for reroll!',
+                    ephemeral: true
+                });
             }
             
-            // Update session and restart the question
+            // Use next extra question
+            const newQuestion = session.extraQuestions.shift();
+            session.questions[session.currentQuestion] = newQuestion;
+            session.rerollsUsed++;
+            
+            console.log(`✅ Rerolled question ${session.currentQuestion + 1} for user ${session.userId} (${session.rerollsUsed}/3)`);
+            
+            // Update session
             await this.saveQuizSession(session.userId, session.guildId, session);
             
-            // Restart the question with new/same question
+            // Restart the question with new question
             await this.askQuestion(originalInteraction, session);
             
         } catch (error) {
             console.error('Error handling reroll:', error);
-        }
-    }
-
-    async getNewQuestion(session) {
-        try {
-            // Get recent questions to avoid (including current session questions)
-            const recentQuestions = await this.getRecentQuestions(session.userId, session.guildId);
-            
-            // Add current session questions to avoid list
-            session.questions.forEach(q => {
-                recentQuestions.add(q.question.toLowerCase().trim());
-                recentQuestions.add(this.createQuestionHash(q.question));
-            });
-            
-            // Load new questions
-            const newQuestions = await this.questionLoader.loadQuestions(recentQuestions);
-            
-            if (newQuestions && newQuestions.length > 0) {
-                // Return a random question from the new batch
-                const randomIndex = Math.floor(Math.random() * newQuestions.length);
-                return newQuestions[randomIndex];
-            }
-            
-            return null;
-            
-        } catch (error) {
-            console.error('Error getting new question for reroll:', error);
-            return null;
         }
     }
 
@@ -538,7 +559,7 @@ class QuizManager {
                 } else {
                     await this.askContinuation(originalInteraction, session);
                 }
-            }, 5000); // Wait 5 seconds before continuing
+            }, 5000);
             
         } catch (error) {
             console.error('Error handling answer selection:', error);
@@ -551,8 +572,8 @@ class QuizManager {
             
             const embed = new EmbedBuilder()
                 .setColor(isCorrect ? '#00FF00' : '#FF0000')
-                .setTitle('🌊 Continue Quest?')
-                .setDescription(`**Battle ${questionNum} Complete!**\n\n${isCorrect ? '⚔️ **Correct!**' : '💀 **Wrong!**'}\n${isCorrect ? `**${selectedAnswer}**` : `**Your Answer:** ${selectedAnswer}\n**Correct Answer:** ${correctAnswer}`}`)
+                .setTitle('🌊 Continue Quiz?')
+                .setDescription(`**Question ${questionNum} Complete!**\n\n${isCorrect ? '⚔️ **Correct!**' : '💀 **Wrong!**'}\n${isCorrect ? `**${selectedAnswer}**` : `**Your Answer:** ${selectedAnswer}\n**Correct Answer:** ${correctAnswer}`}`)
                 .addFields(
                     {
                         name: '📊 Progress',
@@ -561,7 +582,7 @@ class QuizManager {
                     },
                     {
                         name: '🗺️ Journey',
-                        value: this.createProgressBar(session.currentQuestion + 1, session.answers), // +1 because we just answered
+                        value: this.createProgressBar(session.currentQuestion + 1, session.answers),
                         inline: false
                     },
                     {
@@ -573,11 +594,11 @@ class QuizManager {
                     },
                     {
                         name: '⚔️ Remaining',
-                        value: `**${10 - questionNum}** challenges left`,
+                        value: `**${10 - questionNum}** questions left`,
                         inline: true
                     }
                 )
-                .setFooter({ text: '⚠️ Loading next challenge...' })
+                .setFooter({ text: '⚠️ Loading next question...' })
                 .setTimestamp();
 
             await interaction.editReply({ embeds: [embed], components: [] });
@@ -600,8 +621,8 @@ class QuizManager {
             
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
-                .setTitle('🌊 Continue Quest?')
-                .setDescription(`**Battle ${questionNum} Complete!**`)
+                .setTitle('🌊 Continue Quiz?')
+                .setDescription(`**Question ${questionNum} Complete!**`)
                 .addFields(
                     {
                         name: '📊 Progress',
@@ -622,11 +643,11 @@ class QuizManager {
                     },
                     {
                         name: '⚔️ Remaining',
-                        value: `**${10 - questionNum}** challenges left`,
+                        value: `**${10 - questionNum}** questions left`,
                         inline: true
                     }
                 )
-                .setFooter({ text: '⚠️ 60 seconds to decide • No response = Quest abandoned' })
+                .setFooter({ text: '⚠️ 60 seconds to decide • No response = Quiz abandoned' })
                 .setTimestamp();
 
             const buttons = [
@@ -658,7 +679,7 @@ class QuizManager {
                             new EmbedBuilder()
                                 .setColor('#00FF00')
                                 .setTitle('⚔️ Onward!')
-                                .setDescription('**Loading next challenge...**')
+                                .setDescription('**Loading next question...**')
                                 .setFooter({ text: 'Preparing question...' })
                         ],
                         components: []
@@ -693,9 +714,9 @@ class QuizManager {
                 embeds: [
                     new EmbedBuilder()
                         .setColor('#FF0000')
-                        .setTitle('🏳️ Quest Abandoned')
-                        .setDescription(`**Journey End**\n\nYou've decided to end your challenge here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
-                        .setFooter({ text: 'Return tomorrow for a new challenge!' })
+                        .setTitle('🏳️ Quiz Abandoned')
+                        .setDescription(`**Quiz End**\n\nYou've decided to end your quiz here.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quizzes.*`)
+                        .setFooter({ text: 'Return tomorrow for a new quiz!' })
                         .setTimestamp()
                 ],
                 components: []
@@ -748,9 +769,9 @@ class QuizManager {
                 // Continuation timeout
                 const embed = new EmbedBuilder()
                     .setColor('#808080')
-                    .setTitle('⏰ Quest Abandoned')
-                    .setDescription(`**No response received**\n\nYour quest ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quests.*`)
-                    .setFooter({ text: 'Return tomorrow for a new challenge!' })
+                    .setTitle('⏰ Quiz Abandoned')
+                    .setDescription(`**No response received**\n\nYour quiz ends here due to inactivity.\n\n**Final Progress:** ${session.score}/${session.currentQuestion} correct\n\n*No role will be granted for incomplete quizzes.*`)
+                    .setFooter({ text: 'Return tomorrow for a new quiz!' })
                     .setTimestamp();
                 
                 await interaction.followUp({ embeds: [embed] });
@@ -764,36 +785,9 @@ class QuizManager {
         }
     }
 
-    async showAnswerResult(interaction, session, isCorrect, selectedAnswer, correctAnswer) {
-        try {
-            const embed = new EmbedBuilder()
-                .setColor(isCorrect ? '#00FF00' : '#FF0000')
-                .setTitle(isCorrect ? '⚔️ Correct!' : '💀 Wrong!')
-                .setDescription(
-                    isCorrect ? 
-                        `**${selectedAnswer}**` :
-                        `**Your Answer:** ${selectedAnswer}\n**Correct:** ${correctAnswer}`
-                )
-                .addFields({
-                    name: '🏆 Score',
-                    value: `${session.score}/${session.currentQuestion + 1}`,
-                    inline: true
-                })
-                .setFooter({ 
-                    text: session.currentQuestion < 9 ? 'Next question...' : 'Final results...' 
-                })
-                .setTimestamp();
-            
-            await interaction.editReply({ embeds: [embed], components: [] });
-            
-        } catch (error) {
-            console.error('Error showing answer result:', error);
-        }
-    }
-
     async endQuiz(interaction, session) {
         try {
-            const tier = session.score; // Fixed: Use score directly as tier (7/10 = tier 7)
+            const tier = session.score;
             const completionTime = Date.now() - session.startTime;
             
             // Save completion
@@ -885,6 +879,7 @@ class QuizManager {
             
             // Remove from memory
             this.activeQuizzes.delete(`${userId}_${guildId}`);
+            this.preloadedQuestions.delete(`${userId}_${guildId}`);
             
         } catch (error) {
             console.error('Error cleaning up quiz session:', error);
@@ -899,7 +894,7 @@ class QuizManager {
             
             const embed = new EmbedBuilder()
                 .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-                .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Quest Complete!` : '📝 Quest Complete')
+                .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Quiz Complete!` : '📝 Quiz Complete')
                 .setDescription(
                     tier > 0 ? 
                         `**You've earned the ${TIER_NAMES[tier]}!**\n\n*${TIER_DESCRIPTIONS[tier]}*` :
@@ -927,7 +922,7 @@ class QuizManager {
                         inline: false
                     }
                 )
-                .setFooter({ text: `Next quest tomorrow • Completed ${new Date().toLocaleTimeString()}` })
+                .setFooter({ text: `Next quiz tomorrow • Completed ${new Date().toLocaleTimeString()}` })
                 .setTimestamp();
             
             await interaction.followUp({ embeds: [embed] });
@@ -946,8 +941,8 @@ class QuizManager {
         
         const embed = new EmbedBuilder()
             .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
-            .setTitle('📋 Today\'s Quest Complete')
-            .setDescription('**You\'ve already completed today\'s challenge!**')
+            .setTitle('📋 Today\'s Quiz Complete')
+            .setDescription('**You\'ve already completed today\'s quiz!**')
             .addFields(
                 {
                     name: '⚔️ Your Results',
@@ -955,7 +950,7 @@ class QuizManager {
                     inline: true
                 },
                 {
-                    name: '🌅 Next Quest',
+                    name: '🌅 Next Quiz',
                     value: `<t:${nextReset.unix}:R>`,
                     inline: true
                 },
@@ -965,7 +960,7 @@ class QuizManager {
                     inline: false
                 }
             )
-            .setFooter({ text: 'Return tomorrow for a new challenge!' })
+            .setFooter({ text: 'Return tomorrow for a new quiz!' })
             .setTimestamp();
         
         return await interaction.reply({ embeds: [embed], ephemeral: true });
@@ -1060,6 +1055,67 @@ class QuizManager {
             console.error('Error getting guild leaderboard:', error);
             return [];
         }
+    }
+
+    // Clear expired preloaded questions from memory
+    cleanupPreloadedQuestions() {
+        const now = Date.now();
+        const maxAge = 10 * 60 * 1000; // 10 minutes
+        
+        let cleanedCount = 0;
+        for (const [key, data] of this.preloadedQuestions.entries()) {
+            if (now - data.timestamp > maxAge) {
+                this.preloadedQuestions.delete(key);
+                cleanedCount++;
+            }
+        }
+        
+        if (cleanedCount > 0) {
+            console.log(`🧹 Cleaned up ${cleanedCount} expired preloaded question caches`);
+        }
+        
+        return cleanedCount;
+    }
+
+    // Get performance statistics
+    getPerformanceStats() {
+        return {
+            activeQuizzes: this.activeQuizzes.size,
+            preloadedQuestions: this.preloadedQuestions.size,
+            timeIntervals: this.timeIntervals.size,
+            redisConnected: this.redis?.connected || false,
+            databaseConnected: this.db?.connected || false
+        };
+    }
+
+    // Preload questions for multiple users (batch operation)
+    async preloadQuestionsForUsers(userGuildPairs) {
+        const results = [];
+        
+        for (const { userId, guildId } of userGuildPairs) {
+            try {
+                const questions = await this.preloadQuestions(userId, guildId);
+                results.push({
+                    userId,
+                    guildId,
+                    success: questions.length >= 10,
+                    questionCount: questions.length
+                });
+            } catch (error) {
+                console.error(`Error preloading questions for user ${userId}:`, error);
+                results.push({
+                    userId,
+                    guildId,
+                    success: false,
+                    error: error.message
+                });
+            }
+            
+            // Small delay between preloads to avoid overwhelming the system
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        return results;
     }
 }
 
