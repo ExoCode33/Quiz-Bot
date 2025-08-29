@@ -730,8 +730,9 @@ class QuizManager {
             else if (session.score >= 2) embedColor = '#FFC107';
             else embedColor = '#FF5722';
             
-            // Create fresh GIF attachment for continuation screen
-            const gifAttachment = this.createGifAttachment();
+            // Get rarity information for current score
+            const { TIER_RARITIES } = require('../utils/constants');
+            const currentRarity = session.score > 0 ? TIER_RARITIES[session.score] : 'No Rarity';
             
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
@@ -751,8 +752,8 @@ class QuizManager {
                     {
                         name: '🏆 Current Power',
                         value: session.score > 0 ? 
-                            `${TIER_EMOJIS[session.score]} **${TIER_NAMES[session.score]}**` : 
-                            '💀 **No Buff Yet**',
+                            `**${currentRarity}**\n${TIER_EMOJIS[session.score]} **${TIER_NAMES[session.score]}**` : 
+                            '**No Rarity**\n💀 **No Buff Yet**',
                         inline: true
                     },
                     {
@@ -1027,11 +1028,16 @@ class QuizManager {
             const seconds = Math.floor((completionTime % 60000) / 1000);
             const timeText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
             
+            // Get rarity information
+            const { TIER_RARITIES, TIER_RARITY_COLORS } = require('../utils/constants');
+            const rarity = tier > 0 ? TIER_RARITIES[tier] : 'No Rarity';
+            const rarityColor = tier > 0 ? TIER_RARITY_COLORS[tier] : '#808080';
+            
             // Create fresh GIF for final results
             const gifAttachment = this.createGifAttachment();
             
             const embed = new EmbedBuilder()
-                .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
+                .setColor(rarityColor) // Use rarity color instead of tier color
                 .setTitle(tier > 0 ? `${TIER_EMOJIS[tier]} Quiz Complete!` : '📝 Quiz Complete')
                 .setDescription(
                     tier > 0 ? 
@@ -1051,7 +1057,9 @@ class QuizManager {
                     },
                     {
                         name: '🏆 Buff Earned',
-                        value: tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'None',
+                        value: tier > 0 ? 
+                            `**${rarity}**\n${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 
+                            '**No Rarity**\nNone',
                         inline: true
                     },
                     {
@@ -1082,22 +1090,26 @@ class QuizManager {
 
     async showAlreadyCompleted(interaction, completion) {
         const tier = completion.tier || completion.score;
-        const { TIER_NAMES, TIER_COLORS, TIER_EMOJIS } = require('../utils/constants');
+        const { TIER_NAMES, TIER_RARITY_COLORS, TIER_EMOJIS, TIER_RARITIES } = require('../utils/constants');
         
         // Get next reset time
         const nextReset = interaction.resetManager.getNextResetTime();
+        
+        // Get rarity information
+        const rarity = tier > 0 ? TIER_RARITIES[tier] : 'No Rarity';
+        const rarityColor = tier > 0 ? TIER_RARITY_COLORS[tier] : '#808080';
         
         // Create fresh GIF for already completed message
         const gifAttachment = this.createGifAttachment();
         
         const embed = new EmbedBuilder()
-            .setColor(tier > 0 ? TIER_COLORS[tier] || '#4A90E2' : '#808080')
+            .setColor(rarityColor) // Use rarity color
             .setTitle('📋 Today\'s Quiz Complete')
             .setDescription('**You\'ve already completed today\'s quiz!**')
             .addFields(
                 {
                     name: '⚔️ Your Results',
-                    value: `**Score:** ${completion.score}/10\n**Buff:** ${tier > 0 ? `${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : 'None'}`,
+                    value: `**Score:** ${completion.score}/10\n**Buff:** ${tier > 0 ? `**${rarity}**\n${TIER_EMOJIS[tier]} ${TIER_NAMES[tier]}` : '**No Rarity**\nNone'}`,
                     inline: true
                 },
                 {
@@ -1107,7 +1119,7 @@ class QuizManager {
                 },
                 {
                     name: '🏆 Current Power',
-                    value: tier > 0 ? `You wield the **${TIER_NAMES[tier]}**!` : '*Train harder tomorrow!*',
+                    value: tier > 0 ? `You wield the **${rarity} ${TIER_NAMES[tier]}**!` : '*Train harder tomorrow!*',
                     inline: false
                 }
             )
@@ -1133,11 +1145,21 @@ class QuizManager {
         
         for (let i = 0; i < total; i++) {
             if (i < answers.length) {
-                bar += answers[i].isCorrect ? '🟩 ' : '🟥 ';
+                // Show the question number with result
+                const questionNumber = i + 1;
+                if (answers[i].isCorrect) {
+                    bar += `${questionNumber}.✅ `;
+                } else {
+                    bar += `${questionNumber}.❌ `;
+                }
             } else if (i === currentQuestion) {
-                bar += '⏹️ '; // Active question
+                // Current active question
+                const questionNumber = i + 1;
+                bar += `${questionNumber}.⏹️ `;
             } else {
-                bar += '⬛ '; // Not reached yet
+                // Future questions
+                const questionNumber = i + 1;
+                bar += `${questionNumber}.⬛ `;
             }
         }
         
