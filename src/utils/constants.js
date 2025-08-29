@@ -1,29 +1,57 @@
-// Tier colors for embeds
+// Tier colors for embeds (One Piece theme)
 const TIER_COLORS = {
-    1: '#FFFFFF',   // White
-    2: '#4CAF50',   // Green
-    3: '#2196F3',   // Blue
-    4: '#9C27B0',   // Purple
-    5: '#FFC107',   // Amber
-    6: '#FF9800',   // Orange
-    7: '#FF5722',   // Deep Orange
-    8: '#F44336',   // Red
-    9: '#E91E63',   // Pink
-    10: '#FFD700'   // Gold
+    1: '#FFFFFF',   // Common - White
+    2: '#4CAF50',   // Uncommon - Green
+    3: '#2196F3',   // Rare - Blue
+    4: '#9C27B0',   // Epic - Purple
+    5: '#FFC107',   // Legendary - Gold
+    6: '#FFC107',   // Legendary - Gold
+    7: '#FF9800',   // Mythical - Orange
+    8: '#FF9800',   // Mythical - Orange
+    9: '#F44336',   // Divine - Red
+    10: '#F44336'   // Divine - Red
 };
 
-// Tier names
+// Tier names (One Piece theme)
 const TIER_NAMES = {
-    1: 'Bronze Otaku',
-    2: 'Silver Fan',
-    3: 'Gold Enthusiast',
-    4: 'Platinum Weeb',
-    5: 'Diamond Expert',
-    6: 'Master Otaku',
-    7: 'Legendary Weeb',
-    8: 'Mythical Expert',
-    9: 'Divine Master',
-    10: 'Ultimate Otaku'
+    1: 'Common Buff',
+    2: 'Uncommon Buff',
+    3: 'Rare Buff',
+    4: 'Epic Buff',
+    5: 'Legendary Buff',
+    6: 'Legendary Buff',
+    7: 'Mythical Buff',
+    8: 'Mythical Buff',
+    9: 'Divine Buff',
+    10: 'Divine Buff'
+};
+
+// Tier emojis (matching your requirements)
+const TIER_EMOJIS = {
+    1: '⚪',  // Common
+    2: '🟢',  // Uncommon
+    3: '🔵',  // Rare
+    4: '🟣',  // Epic
+    5: '🟡',  // Legendary
+    6: '🟡',  // Legendary
+    7: '🟠',  // Mythical
+    8: '🟠',  // Mythical
+    9: '🔴',  // Divine
+    10: '🔴' // Divine
+};
+
+// One Piece themed descriptions
+const TIER_DESCRIPTIONS = {
+    1: 'A common pirate\'s blessing - every journey starts here',
+    2: 'An uncommon surge of power flows through you',
+    3: 'A rare treasure of the Grand Line enhances your abilities',
+    4: 'Epic power worthy of a Supernova pirate',
+    5: 'Legendary might that rivals the Yonko themselves',
+    6: 'Legendary supremacy that shakes the New World',
+    7: 'Mythical transcendence beyond mortal limits',
+    8: 'Mythical dominance that defies the heavens',
+    9: 'Divine power that rivals the World Government',
+    10: 'Divine perfection - you\'ve reached the pinnacle of power'
 };
 
 // Keywords that indicate anime content
@@ -293,6 +321,8 @@ const FALLBACK_QUESTIONS = {
 module.exports = {
     TIER_COLORS,
     TIER_NAMES,
+    TIER_EMOJIS,
+    TIER_DESCRIPTIONS,
     ANIME_KEYWORDS,
     BAD_KEYWORDS,
     ANIME_TITLES,
