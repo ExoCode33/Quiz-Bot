@@ -290,7 +290,7 @@ class QuestionLoader {
         
         try {
             if (apiUrl.includes('opentdb.com')) {
-                // OpenTDB format
+                // OpenTDB format - these are from Entertainment/Anime category
                 if (data.results && Array.isArray(data.results)) {
                     for (const item of data.results) {
                         const question = {
@@ -306,7 +306,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('trivia-api.com')) {
-                // The Trivia API format - relaxed filtering
+                // The Trivia API format - anime/manga category
                 if (Array.isArray(data)) {
                     for (const item of data) {
                         const question = {
@@ -322,7 +322,7 @@ class QuestionLoader {
                     }
                 }
             } else if (apiUrl.includes('aniquizapi.vercel.app')) {
-                // AniQuizAPI format - single question response
+                // AniQuizAPI format - dedicated anime API
                 if (data.question) {
                     const question = {
                         question: this.cleanText(data.question),
@@ -337,19 +337,29 @@ class QuestionLoader {
                         question.options.push(question.answer);
                     }
                     
-                    // Pad with dummy options if needed
+                    // Pad with reasonable dummy options if needed
+                    const dummyOptions = [
+                        'Light Yagami', 'Edward Elric', 'Natsu Dragneel', 'Ichigo Kurosaki',
+                        'Fire Magic', 'Water Magic', 'Ice Magic', 'Lightning Magic',
+                        'Tokyo', 'Konoha', 'Soul Society', 'Grand Line'
+                    ];
+                    
                     while (question.options.length < 4) {
-                        question.options.push(`Option ${question.options.length}`);
+                        const availableDummy = dummyOptions.find(opt => !question.options.includes(opt));
+                        if (availableDummy) {
+                            question.options.push(availableDummy);
+                        } else {
+                            question.options.push(`Option ${question.options.length}`);
+                        }
                     }
                     
                     this.shuffleArray(question.options);
                     questions.push(question);
                 }
             } else if (apiUrl.includes('beta-trivia.bongobot.io')) {
-                // Beta Trivia API format - more flexible parsing
+                // Beta Trivia API format - entertainment category (more permissive)
                 if (Array.isArray(data)) {
                     for (const item of data) {
-                        // Accept all entertainment questions, not just anime-specific
                         const question = {
                             question: this.cleanText(item.question),
                             answer: this.cleanText(item.correct_answer),
@@ -377,6 +387,9 @@ class QuestionLoader {
                     questions.push(question);
                 }
             }
+            
+            console.log(`📡 API ${apiNumber} parsed ${questions.length} raw questions`);
+            
         } catch (error) {
             console.error(`❌ Error parsing API ${apiNumber} response:`, error);
         }
@@ -410,101 +423,166 @@ class QuestionLoader {
             }
             
             // Check question length
-            if (question.question.length > 200) {
+            if (question.question.length > 250) {
                 return false;
             }
             
             // Check option lengths
-            const hasLongOptions = question.options.some(opt => opt.length > 80);
+            const hasLongOptions = question.options.some(opt => opt.length > 100);
             if (hasLongOptions) {
                 return false;
             }
             
-            // STRICT anime content requirement - must have anime keywords or titles
-            const hasAnimeKeywords = ANIME_KEYWORDS.some(keyword => 
-                questionLower.includes(keyword.toLowerCase())
-            );
+            // ==================== IMPROVED ANIME DETECTION ====================
             
+            // 1. Check for explicit anime/manga keywords (strong indicators)
+            const hasExplicitAnimeKeywords = [
+                'anime', 'manga', 'otaku', 'cosplay', 'japanese animation',
+                'seiyuu', 'voice actor', 'dub', 'sub', 'episode', 'season',
+                'shounen', 'shoujo', 'seinen', 'josei', 'mecha', 'magical girl',
+                'isekai', 'harem', 'tsundere', 'yandere', 'kuudere', 'dandere',
+                'waifu', 'husbando', 'senpai', 'kouhai', 'sensei'
+            ].some(keyword => questionLower.includes(keyword.toLowerCase()));
+
+            // 2. Check for anime titles (very strong indicator)
             const hasAnimeTitles = ANIME_TITLES.some(title => 
                 questionLower.includes(title.toLowerCase())
             );
-            
-            // Additional anime-specific terms
+
+            // 3. Check for anime-specific terms and concepts
             const hasAnimeTerms = [
-                'japanese animation', 'japanese cartoon', 'otaku', 'cosplay', 
-                'voice actor', 'seiyuu', 'dub', 'sub', 'episode', 'season',
-                'shounen', 'shoujo', 'seinen', 'josei', 'mecha', 'magical girl',
-                'isekai', 'harem', 'slice of life', 'yaoi', 'yuri', 'ecchi',
-                'tsundere', 'yandere', 'kuudere', 'dandere', 'waifu', 'husbando'
+                'devil fruit', 'chakra', 'jutsu', 'quirk', 'stand', 'titan',
+                'soul reaper', 'hollow', 'bankai', 'shikai', 'zanpakuto',
+                'guild', 'crew', 'nakama', 'pirate king', 'hokage', 'shinobi',
+                'ninja', 'samurai', 'dojo', 'tournament', 'battle royale',
+                'power level', 'transformation', 'ki', 'chi', 'aura',
+                'demon slayer', 'dragon ball', 'one piece', 'naruto', 'bleach'
             ].some(term => questionLower.includes(term));
-            
-            // Check answer options for anime content too
+
+            // 4. Check for anime character naming patterns
+            const hasAnimeNamePattern = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/.test(question.question) && (
+                questionLower.includes('character') || 
+                questionLower.includes('protagonist') ||
+                questionLower.includes('main') ||
+                questionLower.includes('hero')
+            );
+
+            // 5. Check answer options for anime content
             const answersHaveAnime = question.options.some(option => {
                 const optionLower = option.toLowerCase();
                 return ANIME_TITLES.some(title => optionLower.includes(title.toLowerCase())) ||
-                       ANIME_KEYWORDS.some(keyword => optionLower.includes(keyword.toLowerCase()));
+                       [
+                           'luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward elric',
+                           'light yagami', 'l lawliet', 'monkey d', 'uchiha', 'uzumaki',
+                           'fire', 'water', 'earth', 'wind', 'lightning', 'ice', 'darkness'
+                       ].some(name => optionLower.includes(name));
             });
+
+            // 6. Check for anime-specific question patterns
+            const hasAnimeQuestionPattern = [
+                'which.*anime', 'in.*anime', 'from.*anime', 'anime.*series',
+                'manga.*series', 'which.*character', 'protagonist.*of',
+                'main.*character', 'hero.*academia', 'attack.*titan',
+                'dragon.*ball', 'one.*piece', 'death.*note'
+            ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
+
+            // STRONG ANIME INDICATORS - if any of these are true, likely anime
+            const strongAnimeIndicators = 
+                hasExplicitAnimeKeywords || 
+                hasAnimeTitles || 
+                hasAnimeTerms || 
+                hasAnimeQuestionPattern;
+
+            // WEAK ANIME INDICATORS - supporting evidence
+            const weakAnimeIndicators = 
+                hasAnimeNamePattern || 
+                answersHaveAnime;
+
+            // ==================== REJECTION FILTERS ====================
             
-            // Only allow questions that have strong anime indicators
-            if (!hasAnimeKeywords && !hasAnimeTitles && !hasAnimeTerms && !answersHaveAnime) {
-                console.log(`❌ Rejecting non-anime question: ${question.question.substring(0, 60)}...`);
-                return false;
-            }
+            // Reject obvious non-anime content
+            const nonAnimeKeywords = [
+                'call of duty', 'overwatch', 'pokemon go', 'minecraft', 'fortnite',
+                'xbox', 'playstation', 'nintendo switch', 'pc game', 'mobile game',
+                'hollywood', 'netflix', 'disney', 'marvel', 'dc comics',
+                'american', 'british', 'french', 'german', 'spanish',
+                'real life', 'historical', 'biography', 'documentary'
+            ];
             
-            // Reject gaming questions specifically
-            const isGamingQuestion = [
-                'rpg', 'farming', 'stardew', 'video game', 'game', 'nintendo', 'playstation', 'xbox',
-                'pc game', 'mobile game', 'indie game', 'simulator', 'strategy', 'mmorpg'
-            ].some(term => questionLower.includes(term));
-            
-            if (isGamingQuestion && !hasAnimeKeywords && !hasAnimeTitles) {
-                console.log(`❌ Rejecting gaming question: ${question.question.substring(0, 60)}...`);
-                return false;
-            }
-            
-            // Reject music questions that aren't anime-related
-            const isMusicQuestion = [
-                'song', 'album', 'band', 'singer', 'musician', 'hit', 'chart', 'billboard',
-                'recording', 'studio album', 'single'
-            ].some(term => questionLower.includes(term));
-            
-            if (isMusicQuestion && !hasAnimeKeywords && !hasAnimeTitles) {
-                console.log(`❌ Rejecting music question: ${question.question.substring(0, 60)}...`);
-                return false;
-            }
-            
-            // Filter out bad keywords (production/technical questions) - be more strict
-            const hasBadKeyword = BAD_KEYWORDS.some(keyword => 
+            const hasNonAnimeKeywords = nonAnimeKeywords.some(keyword => 
                 questionLower.includes(keyword.toLowerCase())
             );
+
+            // Reject pure gaming questions (unless they have strong anime indicators)
+            const isPureGaming = [
+                'video game', 'pc game', 'console game', 'mobile game',
+                'game developer', 'game publisher', 'steam', 'epic games',
+                'nintendo', 'sony', 'microsoft', 'valve'
+            ].some(term => questionLower.includes(term)) && !strongAnimeIndicators;
+
+            // Reject music questions unless anime-related
+            const isPureMusicQuestion = [
+                'billboard', 'grammy', 'album chart', 'recording studio',
+                'music producer', 'record label', 'music video'
+            ].some(term => questionLower.includes(term)) && !strongAnimeIndicators;
+
+            // ==================== DECISION LOGIC ====================
             
-            if (hasBadKeyword) {
-                const hasAllowedPattern = [
-                    'voice.*actor', 'voiced by', 'seiyuu', 'dub.*actor',
-                    'year.*air', 'when.*air', 'what year.*release',
-                    'character', 'protagonist', 'anime', 'manga'
-                ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
+            // Definitely reject non-anime content
+            if (hasNonAnimeKeywords || isPureGaming || isPureMusicQuestion) {
+                console.log(`❌ Rejecting non-anime content: ${question.question.substring(0, 60)}...`);
+                return false;
+            }
+
+            // Accept if we have strong anime indicators
+            if (strongAnimeIndicators) {
+                console.log(`✅ Accepting anime question (strong): ${question.question.substring(0, 60)}...`);
+                return true;
+            }
+
+            // Accept if we have weak indicators and it's from a trusted anime API
+            if (weakAnimeIndicators && (question.source === 'OpenTDB' || question.source === 'TriviaAPI')) {
+                console.log(`✅ Accepting anime question (weak + trusted): ${question.question.substring(0, 60)}...`);
+                return true;
+            }
+
+            // Check for overly technical questions only after anime validation
+            const isTooTechnical = BAD_KEYWORDS.some(keyword => 
+                questionLower.includes(keyword.toLowerCase())
+            );
+
+            if (isTooTechnical) {
+                // Allow some technical questions if they're clearly anime-related
+                const allowedTechnicalPatterns = [
+                    'voice.*actor.*anime', 'anime.*voice', 'seiyuu.*voice',
+                    'anime.*air', 'when.*anime.*release', 'anime.*debut',
+                    'anime.*character', 'character.*anime'
+                ];
                 
-                if (!hasAllowedPattern) {
-                    console.log(`❌ Rejecting bad keyword question: ${question.question.substring(0, 60)}...`);
+                const isAllowedTechnical = allowedTechnicalPatterns.some(pattern => 
+                    new RegExp(pattern, 'i').test(questionLower)
+                );
+                
+                if (!isAllowedTechnical) {
+                    console.log(`❌ Rejecting technical question: ${question.question.substring(0, 60)}...`);
                     return false;
                 }
             }
-            
-            // Additional quality checks
+
+            // Final quality checks
             const numberCount = (question.question.match(/\d+/g) || []).length;
-            if (numberCount > 3) {
+            if (numberCount > 4) {
                 return false;
             }
             
+            // Reject multiple choice artifacts in the question text
             if (/\b(a\)|b\)|c\)|d\)|\(a\)|\(b\)|\(c\)|\(d\))/i.test(questionLower)) {
                 return false;
             }
-            
-            // Log accepted questions for debugging
-            console.log(`✅ Accepting anime question: ${question.question.substring(0, 60)}...`);
-            
-            return true;
+
+            // If we get here, it's probably not anime-related enough
+            console.log(`❌ Rejecting question (insufficient anime content): ${question.question.substring(0, 60)}...`);
+            return false;
             
         } catch (error) {
             console.error('❌ Error validating question:', error);
