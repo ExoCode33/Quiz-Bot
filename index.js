@@ -136,7 +136,7 @@ class AnimeQuizBot {
     }
 
     setupEventHandlers() {
-        this.client.once('ready', () => {
+        this.client.once('clientReady', () => {
             console.log(`⚓ Logged in as ${this.client.user.tag}`);
             console.log(`🏴‍☠️ Serving ${this.client.guilds.cache.size} server(s)`);
         });
