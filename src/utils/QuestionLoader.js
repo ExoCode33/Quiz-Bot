@@ -2,76 +2,61 @@ const { FALLBACK_QUESTIONS, ANIME_KEYWORDS, BAD_KEYWORDS, ANIME_TITLES } = requi
 
 class QuestionLoader {
     constructor() {
-        // Optimized API endpoints with better rate limiting strategy
+        // Optimized API endpoints with better error handling
         this.apiEndpoints = [
             {
-                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=easy',
+                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=easy',
                 name: 'OpenTDB-Easy',
                 priority: 1,
-                maxRetries: 2,
-                delay: 800
+                maxRetries: 3,
+                delay: 1000,
+                timeout: 12000
             },
             {
-                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=medium',
+                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=medium',
                 name: 'OpenTDB-Medium', 
                 priority: 1,
-                maxRetries: 2,
-                delay: 1000
+                maxRetries: 3,
+                delay: 1200,
+                timeout: 12000
             },
             {
-                url: 'https://opentdb.com/api.php?amount=3&category=31&type=multiple&difficulty=hard',
+                url: 'https://opentdb.com/api.php?amount=5&category=31&type=multiple&difficulty=hard',
                 name: 'OpenTDB-Hard',
                 priority: 1,
-                maxRetries: 2,
-                delay: 1200
+                maxRetries: 3,
+                delay: 1400,
+                timeout: 12000
             },
             {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=easy',
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=easy',
                 name: 'TriviaAPI-Easy',
                 priority: 2,
-                maxRetries: 1,
-                delay: 500
+                maxRetries: 2,
+                delay: 800,
+                timeout: 10000
             },
             {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=medium',
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=medium',
                 name: 'TriviaAPI-Medium',
                 priority: 2,
-                maxRetries: 1,
-                delay: 600
+                maxRetries: 2,
+                delay: 1000,
+                timeout: 10000
             },
             {
-                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=5&difficulty=hard',
+                url: 'https://the-trivia-api.com/v2/questions?categories=anime_and_manga&limit=8&difficulty=hard',
                 name: 'TriviaAPI-Hard',
                 priority: 2,
-                maxRetries: 1,
-                delay: 700
-            },
-            {
-                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=easy',
-                name: 'AniQuizAPI-Easy',
-                priority: 3,
-                maxRetries: 3,
-                delay: 300
-            },
-            {
-                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=medium', 
-                name: 'AniQuizAPI-Medium',
-                priority: 3,
-                maxRetries: 3,
-                delay: 400
-            },
-            {
-                url: 'https://aniquizapi.vercel.app/api/quiz?difficulty=hard',
-                name: 'AniQuizAPI-Hard',
-                priority: 3,
-                maxRetries: 3,
-                delay: 500
+                maxRetries: 2,
+                delay: 1200,
+                timeout: 10000
             }
         ];
         
         // Rate limiting configuration
         this.lastApiCall = new Map();
-        this.minDelayBetweenCalls = 800;
+        this.minDelayBetweenCalls = 1500; // Increased delay
         
         // Simple stats tracking
         this.sessionStats = {
@@ -89,25 +74,23 @@ class QuestionLoader {
             
             console.log(`🔄 Loading ${targetCount} anime quiz questions with improved system...`);
             
-            // Load questions from APIs first
+            // Load questions from APIs first with better error handling
             const apiQuestions = await this.fetchFromAllAPIs(avoidQuestions);
             console.log(`📡 Received ${apiQuestions.length} total questions from all APIs`);
             
             // Log simple stats
             this.logSimpleStats();
             
-            // If we don't have enough API questions, supplement with fallbacks
+            // Always supplement with fallbacks for reliability
             let allQuestions = [...apiQuestions];
             
-            if (allQuestions.length < targetCount) {
-                console.log(`⚠️ Only ${allQuestions.length} API questions available, adding fallbacks...`);
-                
-                const fallbacksNeeded = targetCount - allQuestions.length + 5;
-                const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, new Set(), fallbacksNeeded);
-                
-                allQuestions = [...allQuestions, ...fallbackQuestions];
-                console.log(`📚 Total questions after adding fallbacks: ${allQuestions.length}`);
-            }
+            console.log(`📚 Adding fallback questions for reliability...`);
+            
+            const fallbacksNeeded = Math.max(targetCount - allQuestions.length + 8, 20); // Ensure we have extras
+            const fallbackQuestions = this.getFallbackQuestions(avoidQuestions, new Set(), fallbacksNeeded);
+            
+            allQuestions = [...allQuestions, ...fallbackQuestions];
+            console.log(`📚 Total questions after adding fallbacks: ${allQuestions.length}`);
             
             // Separate questions by difficulty
             const questionsByDifficulty = this.separateQuestionsByDifficulty(allQuestions, avoidQuestions);
@@ -336,7 +319,7 @@ class QuestionLoader {
                 }
                 
                 // Stop early if we have enough questions
-                if (allQuestions.length >= 15) {
+                if (allQuestions.length >= 20) {
                     console.log(`🎯 Early stop: Got ${allQuestions.length} questions (target met)`);
                     break;
                 }
@@ -370,11 +353,12 @@ class QuestionLoader {
                 
                 if (error.message.includes('429') || error.message.includes('rate')) {
                     console.warn(`⚠️ Rate limited on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
-                    const backoffDelay = Math.min(apiConfig.delay * Math.pow(2, retry), 5000);
+                    const backoffDelay = Math.min(apiConfig.delay * Math.pow(2, retry), 10000);
                     await new Promise(resolve => setTimeout(resolve, backoffDelay));
-                } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
-                    console.warn(`⚠️ Server error on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
-                    await new Promise(resolve => setTimeout(resolve, apiConfig.delay));
+                } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503') || error.message.includes('timeout')) {
+                    console.warn(`⚠️ Server/timeout error on ${apiConfig.name}, retry ${retry + 1}/${apiConfig.maxRetries}`);
+                    const backoffDelay = Math.min(apiConfig.delay * (retry + 2), 8000);
+                    await new Promise(resolve => setTimeout(resolve, backoffDelay));
                 } else {
                     console.warn(`⚠️ ${apiConfig.name} error (no retry): ${error.message}`);
                     break;
@@ -404,14 +388,16 @@ class QuestionLoader {
             const displayName = apiName || this.getAPIName(apiUrl);
             
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            const timeoutMs = 15000; // Increased timeout
+            const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
             
             const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
-                    'User-Agent': 'AnimeQuizBot/1.0',
+                    'User-Agent': 'Mozilla/5.0 (compatible; AnimeQuizBot/1.0)',
                     'Accept': 'application/json',
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache',
+                    'Accept-Encoding': 'gzip, deflate'
                 },
                 signal: controller.signal
             });
@@ -423,8 +409,10 @@ class QuestionLoader {
                     throw new Error(`429 Rate Limited`);
                 } else if (response.status >= 500) {
                     throw new Error(`${response.status} Server Error`);
+                } else if (response.status === 404) {
+                    throw new Error(`404 Not Found - API endpoint may have changed`);
                 } else {
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
             }
             
@@ -461,6 +449,13 @@ class QuestionLoader {
             if (apiUrl.includes('opentdb.com')) {
                 if (data.response_code !== 0) {
                     console.warn(`⚠️ OpenTDB API returned code ${data.response_code}`);
+                    if (data.response_code === 1) {
+                        console.warn(`⚠️ OpenTDB: No results found for this query`);
+                    } else if (data.response_code === 2) {
+                        console.warn(`⚠️ OpenTDB: Invalid parameter`);
+                    } else if (data.response_code === 5) {
+                        console.warn(`⚠️ OpenTDB: Rate limit exceeded`);
+                    }
                     return [];
                 }
                 
@@ -501,40 +496,6 @@ class QuestionLoader {
                         }
                     }
                 }
-            } else if (apiUrl.includes('aniquizapi.vercel.app')) {
-                if (data.question && data.answer) {
-                    const question = {
-                        question: this.cleanText(data.question),
-                        answer: this.cleanText(data.answer),
-                        options: data.options ? data.options.map(opt => this.cleanText(opt)) : [],
-                        difficulty: data.difficulty || 'Medium',
-                        source: 'AniQuizAPI'
-                    };
-                    
-                    if (!question.options.includes(question.answer)) {
-                        question.options.push(question.answer);
-                    }
-                    
-                    const animeOptions = [
-                        'Monkey D. Luffy', 'Naruto Uzumaki', 'Edward Elric', 'Light Yagami',
-                        'Ichigo Kurosaki', 'Natsu Dragneel', 'Eren Yeager', 'Son Goku',
-                        'Fire Release', 'Water Style', 'Lightning Blade', 'Wind Scythe'
-                    ];
-                    
-                    while (question.options.length < 4) {
-                        const availableOption = animeOptions.find(opt => !question.options.includes(opt));
-                        if (availableOption) {
-                            question.options.push(availableOption);
-                        } else {
-                            question.options.push(`Anime Option ${question.options.length}`);
-                        }
-                    }
-                    
-                    if (question.question.length > 0 && question.answer.length > 0) {
-                        this.shuffleArray(question.options);
-                        questions.push(question);
-                    }
-                }
             }
             
             console.log(`📝 Parsed ${questions.length} valid questions from API response`);
@@ -568,16 +529,21 @@ class QuestionLoader {
                 return false;
             }
             
-            if (question.question.length > 250) {
+            if (question.question.length > 300) {
                 return false;
             }
             
-            const hasLongOptions = question.options.some(opt => opt.length > 100);
+            const hasLongOptions = question.options.some(opt => opt.length > 120);
             if (hasLongOptions) {
                 return false;
             }
+
+            // Check for invalid characters or encoding issues
+            if (questionLower.includes('�') || questionLower.includes('&amp;')) {
+                return false;
+            }
             
-            // ==================== ANIME DETECTION ====================
+            // ==================== IMPROVED ANIME DETECTION ====================
             
             // Strong anime indicators
             const strongAnimeIndicators = [
@@ -588,41 +554,47 @@ class QuestionLoader {
                 'tsundere', 'yandere', 'kuudere', 'dandere', 'waifu', 'husbando',
                 'senpai', 'kouhai', 'sensei', 'chan', 'kun', 'sama',
                 'dragon ball', 'one piece', 'naruto', 'bleach', 'attack on titan',
-                'my hero academia', 'death note', 'fullmetal alchemist'
+                'my hero academia', 'death note', 'fullmetal alchemist',
+                'studio ghibli', 'miyazaki', 'mecha', 'gundam'
             ];
 
             const hasStrongIndicators = strongAnimeIndicators.some(indicator => 
                 questionLower.includes(indicator.toLowerCase())
             );
 
-            // Anime titles check
+            // Anime titles check (expanded)
             const hasAnimeTitles = ANIME_TITLES.some(title => 
                 questionLower.includes(title.toLowerCase())
             );
 
-            // Question pattern check
+            // Question pattern check (improved)
             const hasAnimePattern = [
                 'which.*anime', 'in.*anime', 'anime.*series', 'manga.*series',
-                'which.*character', 'protagonist.*of', 'main.*character'
+                'which.*character', 'protagonist.*of', 'main.*character',
+                'voice actor', 'voice actress', 'voiced by'
             ].some(pattern => new RegExp(pattern, 'i').test(questionLower));
 
-            // Answer options contain anime content
+            // Answer options contain anime content (expanded check)
             const answersHaveAnime = question.options.some(option => {
                 const optionLower = option.toLowerCase();
                 return ANIME_TITLES.some(title => optionLower.includes(title.toLowerCase())) ||
                        [
                            'luffy', 'naruto', 'goku', 'ichigo', 'natsu', 'edward',
-                           'light yagami', 'monkey d', 'uchiha', 'uzumaki'
+                           'light yagami', 'monkey d', 'uchiha', 'uzumaki',
+                           'elric', 'kurosaki', 'dragneel', 'midoriya', 'todoroki',
+                           'bakugo', 'aizawa', 'allmight', 'deku'
                        ].some(name => optionLower.includes(name));
             });
 
-            // ==================== REJECTION FILTERS ====================
+            // ==================== STRICT REJECTION FILTERS ====================
             
             const nonAnimeContent = [
-                'call of duty', 'minecraft', 'fortnite', 'overwatch',
-                'xbox', 'playstation', 'nintendo switch', 'pc game',
+                'call of duty', 'minecraft', 'fortnite', 'overwatch', 'league of legends',
+                'xbox', 'playstation', 'nintendo switch', 'pc game', 'steam',
                 'hollywood', 'netflix', 'disney', 'marvel', 'dc comics',
-                'billboard', 'grammy', 'album chart', 'music producer'
+                'billboard', 'grammy', 'album chart', 'music producer',
+                'tv show', 'television', 'live action', 'sitcom',
+                'american', 'british', 'european', 'western animation'
             ].some(keyword => questionLower.includes(keyword.toLowerCase()));
 
             if (nonAnimeContent) {
@@ -630,21 +602,31 @@ class QuestionLoader {
                 return false;
             }
 
+            // Reject questions with too many numbers (likely statistics)
+            const numberCount = (question.question.match(/\d+/g) || []).length;
+            if (numberCount > 3) {
+                console.log(`❌ Rejecting question with too many numbers: ${question.question.substring(0, 60)}...`);
+                return false;
+            }
+
             // ==================== DECISION LOGIC ====================
             
-            if (hasStrongIndicators || hasAnimeTitles || hasAnimePattern) {
+            // Accept if has strong anime indicators
+            if (hasStrongIndicators || hasAnimeTitles) {
                 console.log(`✅ Accepting anime question (strong): ${question.question.substring(0, 60)}...`);
                 return true;
             }
 
-            if (answersHaveAnime && (question.source === 'OpenTDB' || question.source === 'TriviaAPI' || question.source === 'AniQuizAPI')) {
-                console.log(`✅ Accepting anime question (weak + trusted): ${question.question.substring(0, 60)}...`);
+            // Accept if has anime pattern and trusted source
+            if (hasAnimePattern && (question.source === 'OpenTDB' || question.source === 'TriviaAPI')) {
+                console.log(`✅ Accepting anime question (pattern + trusted): ${question.question.substring(0, 60)}...`);
                 return true;
             }
 
-            const numberCount = (question.question.match(/\d+/g) || []).length;
-            if (numberCount > 4) {
-                return false;
+            // Accept if answers contain anime content and from anime category
+            if (answersHaveAnime && (questionLower.includes('character') || questionLower.includes('series'))) {
+                console.log(`✅ Accepting anime question (answers + context): ${question.question.substring(0, 60)}...`);
+                return true;
             }
 
             console.log(`❌ Rejecting question (insufficient anime content): ${question.question.substring(0, 60)}...`);
@@ -718,6 +700,9 @@ class QuestionLoader {
             .replace(/&rdquo;/g, '"')
             .replace(/&lsquo;/g, "'")
             .replace(/&rsquo;/g, "'")
+            .replace(/&hellip;/g, '...')
+            .replace(/&mdash;/g, '—')
+            .replace(/&ndash;/g, '–')
             .trim();
     }
 
@@ -736,11 +721,11 @@ class QuestionLoader {
             if (url.includes('difficulty=easy')) return 'OpenTDB-Easy';
             return 'OpenTDB';
         }
-        if (url.includes('trivia-api.com')) return 'TriviaAPI';
-        if (url.includes('aniquizapi.vercel.app')) {
-            if (url.includes('difficulty=hard')) return 'AniQuizAPI-Hard';
-            if (url.includes('difficulty=easy')) return 'AniQuizAPI-Easy';
-            return 'AniQuizAPI-Medium';
+        if (url.includes('trivia-api.com')) {
+            if (url.includes('difficulty=hard')) return 'TriviaAPI-Hard';
+            if (url.includes('difficulty=medium')) return 'TriviaAPI-Medium';
+            if (url.includes('difficulty=easy')) return 'TriviaAPI-Easy';
+            return 'TriviaAPI';
         }
         return 'Unknown';
     }
@@ -792,6 +777,190 @@ class QuestionLoader {
         });
         
         return stats;
+    }
+
+    // Emergency fallback method - guarantees questions even if all else fails
+    getEmergencyFallbackQuestions(targetCount = 13) {
+        console.log('🚨 Using emergency fallback questions...');
+        
+        const emergencyQuestions = [
+            {
+                question: "Who is the main protagonist of One Piece?",
+                options: ["Monkey D. Luffy", "Roronoa Zoro", "Nami", "Sanji"],
+                answer: "Monkey D. Luffy",
+                difficulty: "Easy"
+            },
+            {
+                question: "What is Naruto's favorite food?",
+                options: ["Ramen", "Sushi", "Rice balls", "Tempura"],
+                answer: "Ramen",
+                difficulty: "Easy"
+            },
+            {
+                question: "In Dragon Ball, how many Dragon Balls are there?",
+                options: ["7", "5", "9", "12"],
+                answer: "7",
+                difficulty: "Easy"
+            },
+            {
+                question: "What is the name of Light's notebook in Death Note?",
+                options: ["Death Note", "Kill Book", "Murder Diary", "Dark Journal"],
+                answer: "Death Note",
+                difficulty: "Medium"
+            },
+            {
+                question: "In Attack on Titan, what are the giant creatures called?",
+                options: ["Titans", "Giants", "Colossi", "Monsters"],
+                answer: "Titans",
+                difficulty: "Medium"
+            },
+            {
+                question: "What is Luffy's Devil Fruit power?",
+                options: ["Rubber abilities", "Fire powers", "Ice powers", "Lightning"],
+                answer: "Rubber abilities",
+                difficulty: "Medium"
+            },
+            {
+                question: "In Fullmetal Alchemist, what is the first law of equivalent exchange?",
+                options: ["To obtain something, something of equal value must be lost", "Energy cannot be destroyed", "Matter cannot be created", "All is one"],
+                answer: "To obtain something, something of equal value must be lost",
+                difficulty: "Hard"
+            },
+            {
+                question: "What is the name of Ichigo's sword in Bleach?",
+                options: ["Zangetsu", "Senbonzakura", "Hyorinmaru", "Zabimaru"],
+                answer: "Zangetsu",
+                difficulty: "Hard"
+            },
+            {
+                question: "In One Piece, what is Nico Robin's Devil Fruit called?",
+                options: ["Hana Hana no Mi", "Gomu Gomu no Mi", "Mera Mera no Mi", "Yami Yami no Mi"],
+                answer: "Hana Hana no Mi",
+                difficulty: "Hard"
+            },
+            {
+                question: "What village is Naruto from?",
+                options: ["Hidden Leaf Village", "Hidden Sand Village", "Hidden Mist Village", "Hidden Cloud Village"],
+                answer: "Hidden Leaf Village",
+                difficulty: "Easy"
+            },
+            {
+                question: "In My Hero Academia, what is Deku's real name?",
+                options: ["Izuku Midoriya", "Katsuki Bakugo", "Shoto Todoroki", "Tenya Iida"],
+                answer: "Izuku Midoriya",
+                difficulty: "Medium"
+            },
+            {
+                question: "What type of Pokemon is Pikachu?",
+                options: ["Electric", "Fire", "Water", "Grass"],
+                answer: "Electric",
+                difficulty: "Easy"
+            },
+            {
+                question: "In JoJo's Bizarre Adventure, what are Stands?",
+                options: ["Supernatural abilities", "Weapons", "Locations", "Organizations"],
+                answer: "Supernatural abilities",
+                difficulty: "Hard"
+            }
+        ];
+
+        this.shuffleArray(emergencyQuestions);
+        
+        // Ensure we have enough questions by duplicating if necessary
+        while (emergencyQuestions.length < targetCount) {
+            const additionalQuestions = [...emergencyQuestions];
+            this.shuffleArray(additionalQuestions);
+            emergencyQuestions.push(...additionalQuestions.slice(0, targetCount - emergencyQuestions.length));
+        }
+
+        console.log(`🛡️ Emergency fallback provided ${Math.min(targetCount, emergencyQuestions.length)} questions`);
+        return emergencyQuestions.slice(0, targetCount);
+    }
+
+    // Method to validate and fix question data
+    validateAndFixQuestion(question) {
+        if (!question || typeof question !== 'object') {
+            return null;
+        }
+
+        // Ensure required fields exist
+        if (!question.question || !question.answer || !question.options) {
+            return null;
+        }
+
+        // Clean and validate question text
+        question.question = this.cleanText(question.question);
+        question.answer = this.cleanText(question.answer);
+        
+        if (!question.question || question.question.length < 10) {
+            return null;
+        }
+
+        // Clean and validate options
+        question.options = question.options.map(opt => this.cleanText(opt)).filter(opt => opt && opt.length > 0);
+        
+        if (question.options.length < 2) {
+            return null;
+        }
+
+        // Ensure answer is in options
+        if (!question.options.includes(question.answer)) {
+            question.options.push(question.answer);
+        }
+
+        // Ensure we have at least 4 options
+        while (question.options.length < 4) {
+            question.options.push(`Option ${question.options.length + 1}`);
+        }
+
+        // Set default difficulty if missing
+        if (!question.difficulty) {
+            question.difficulty = 'Medium';
+        }
+
+        return question;
+    }
+
+    // Health check for APIs
+    async checkAPIHealth() {
+        console.log('🔍 Checking API health...');
+        
+        const healthResults = {};
+        
+        for (const apiConfig of this.apiEndpoints) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(apiConfig.url, {
+                    method: 'HEAD', // Use HEAD request for health check
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                healthResults[apiConfig.name] = {
+                    status: response.ok ? 'healthy' : 'unhealthy',
+                    statusCode: response.status,
+                    responseTime: Date.now()
+                };
+                
+                console.log(`${response.ok ? '✅' : '❌'} ${apiConfig.name}: ${response.status}`);
+                
+            } catch (error) {
+                healthResults[apiConfig.name] = {
+                    status: 'error',
+                    error: error.message
+                };
+                
+                console.log(`❌ ${apiConfig.name}: ${error.message}`);
+            }
+            
+            // Small delay between health checks
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        return healthResults;
     }
 }
 
