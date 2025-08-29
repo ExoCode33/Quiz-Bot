@@ -167,8 +167,8 @@ class QuizManager {
                 });
             }
 
-            // Send all questions and answers to chat for verification
-            await this.displayAllQuestions(interaction, questions, userId);
+            // Display all questions in Railway logs only
+            this.logAllQuestionsToConsole(questions, userId);
 
             // Initialize quiz session with first 10 questions
             const quizSession = {
@@ -187,10 +187,8 @@ class QuizManager {
             // Save quiz session
             await this.saveQuizSession(userId, guildId, quizSession);
 
-            // Start first question after a brief delay
-            setTimeout(async () => {
-                await this.askQuestion(interaction, quizSession);
-            }, 2000);
+            // Start first question immediately
+            await this.askQuestion(interaction, quizSession);
 
         } catch (error) {
             console.error('Error starting quiz:', error);
@@ -201,96 +199,22 @@ class QuizManager {
         }
     }
 
-    // Display all questions and answers in chat for verification
-    async displayAllQuestions(interaction, questions, userId) {
-        try {
-            // Create embed showing all questions and answers
-            const embed = new EmbedBuilder()
-                .setColor('#FFD700')
-                .setTitle('🔍 Quiz Debug Information')
-                .setDescription(`**All Questions Loaded for User ${userId}**\n*This is for verification purposes only*`)
-                .setFooter({ text: 'Quiz will begin in 2 seconds...' })
-                .setTimestamp();
-
-            // Split questions into chunks to avoid Discord embed limits
-            const questionChunks = [];
-            let currentChunk = '';
-            
-            for (let i = 0; i < questions.length; i++) {
-                const question = questions[i];
-                const questionLine = `**Q${(i + 1).toString().padStart(2, '0')}:** ${question.question}\n**A${(i + 1).toString().padStart(2, '0')}:** ${question.answer}\n\n`;
-                
-                // Check if adding this question would exceed field value limit (1024 chars)
-                if (currentChunk.length + questionLine.length > 950) {
-                    questionChunks.push(currentChunk);
-                    currentChunk = questionLine;
-                } else {
-                    currentChunk += questionLine;
-                }
-            }
-            
-            // Add the last chunk
-            if (currentChunk) {
-                questionChunks.push(currentChunk);
-            }
-
-            // Add fields for each chunk
-            questionChunks.forEach((chunk, index) => {
-                const startQ = index * Math.ceil(questions.length / questionChunks.length) + 1;
-                const endQ = Math.min((index + 1) * Math.ceil(questions.length / questionChunks.length), questions.length);
-                
-                embed.addFields({
-                    name: `📚 Questions ${startQ}-${endQ}`,
-                    value: chunk,
-                    inline: false
-                });
-            });
-
-            // Send the debug information
-            await interaction.followUp({ embeds: [embed], ephemeral: false });
-
-            // Also send a simple text version for easier reading
-            let textOutput = `🎯 **Quiz Debug - All ${questions.length} Questions for User ${userId}**\n\`\`\`\n`;
-            
-            questions.forEach((question, index) => {
-                textOutput += `Q${(index + 1).toString().padStart(2, '0')}: ${question.question}\n`;
-                textOutput += `A${(index + 1).toString().padStart(2, '0')}: ${question.answer}\n`;
-                textOutput += `${'-'.repeat(50)}\n`;
-            });
-            
-            textOutput += `\`\`\``;
-
-            // Split text output if it's too long for Discord
-            const maxLength = 1900; // Leave room for formatting
-            if (textOutput.length > maxLength) {
-                let chunks = [];
-                let currentTextChunk = '🎯 **Quiz Debug - Questions & Answers**\n```\n';
-                
-                questions.forEach((question, index) => {
-                    const questionBlock = `Q${(index + 1).toString().padStart(2, '0')}: ${question.question}\nA${(index + 1).toString().padStart(2, '0')}: ${question.answer}\n${'-'.repeat(50)}\n`;
-                    
-                    if (currentTextChunk.length + questionBlock.length + 3 > maxLength) { // +3 for closing ```
-                        chunks.push(currentTextChunk + '```');
-                        currentTextChunk = '```\n' + questionBlock;
-                    } else {
-                        currentTextChunk += questionBlock;
-                    }
-                });
-                
-                chunks.push(currentTextChunk + '```');
-                
-                // Send each chunk
-                for (const chunk of chunks) {
-                    await interaction.followUp({ content: chunk, ephemeral: false });
-                    await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between chunks
-                }
-            } else {
-                await interaction.followUp({ content: textOutput, ephemeral: false });
-            }
-
-        } catch (error) {
-            console.error('Error displaying all questions:', error);
-        }
+    // Log all questions and answers to Railway console only
+    logAllQuestionsToConsole(questions, userId) {
+        console.log(`\n🎯 ═══════════════════════════════════════════════════════════════`);
+        console.log(`🎯 QUIZ DEBUG - ALL ${questions.length} QUESTIONS FOR USER ${userId}`);
+        console.log(`🎯 ═══════════════════════════════════════════════════════════════`);
+        
+        questions.forEach((question, index) => {
+            const questionNum = (index + 1).toString().padStart(2, '0');
+            console.log(`\x1b[36mQ${questionNum}: ${question.question}\x1b[0m`);
+            console.log(`\x1b[32mA${questionNum}: ${question.answer}\x1b[0m`);
+            console.log(`${'─'.repeat(65)}`);
+        });
+        
+        console.log(`🎯 ═══════════════════════════════════════════════════════════════`);
+        console.log(`🎯 QUIZ STARTING NOW FOR USER ${userId}`);
+        console.log(`🎯 ═══════════════════════════════════════════════════════════════\n`);
     }
 
     async loadQuestions(userId, guildId) {
