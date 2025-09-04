@@ -496,3 +496,223 @@ class RedisManager {
                     return acc;
                 }, {})
             };
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting connection status:', error);
+            return { connected: false, error: error.message };
+        }
+    }
+
+    // Enhanced stats that show key isolation
+    async getStats() {
+        if (!this.connected) return null;
+        
+        try {
+            const info = await this.client.info();
+            const totalKeys = await this.client.dbSize();
+            
+            // Count keys by pattern (ONLY our keys)
+            const patterns = {
+                completions: `${this.prefix}completion:*`,
+                activeQuizzes: `${this.prefix}active_quiz:*`,
+                questions: `${this.prefix}questions:*`,
+                questionPools: `${this.prefix}question_pool:*`,
+                recentQuestions: `${this.prefix}recent:*`,
+                leaderboards: `${this.prefix}leaderboard:*`,
+                resets: `${this.prefix}reset:*`
+            };
+            
+            const patternCounts = {};
+            let ourTotalKeys = 0;
+            
+            for (const [name, pattern] of Object.entries(patterns)) {
+                const keys = await this.client.keys(pattern);
+                patternCounts[name] = keys.length;
+                ourTotalKeys += keys.length;
+            }
+            
+            return {
+                connected: true,
+                totalKeysInRedis: totalKeys, // All keys in Redis
+                ourKeys: ourTotalKeys,       // Only our bot's keys
+                keyPrefix: this.prefix,      // Our isolation prefix
+                keysByType: patternCounts,
+                memoryUsage: info.match(/used_memory_human:(.+)/)?.[1]?.trim(),
+                connectedClients: info.match(/connected_clients:(\d+)/)?.[1],
+                commandsProcessed: info.match(/total_commands_processed:(\d+)/)?.[1]
+            };
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting statistics:', error);
+            return null;
+        }
+    }
+
+    // Safe health check that confirms key isolation
+    async healthCheck() {
+        if (!this.connected) {
+            return {
+                status: 'disconnected',
+                connected: false,
+                error: 'Redis not connected'
+            };
+        }
+        
+        try {
+            const start = Date.now();
+            await this.client.ping();
+            const latency = Date.now() - start;
+            
+            // Check if our keys exist (test isolation)
+            const testKey = this.key('health_check_test');
+            await this.client.setEx(testKey, 5, 'test_value');
+            const testValue = await this.client.get(testKey);
+            await this.client.del(testKey);
+            
+            const keyIsolationWorking = testValue === 'test_value';
+            
+            const info = await this.client.info('server');
+            const stats = await this.getStats();
+            
+            return {
+                status: 'healthy',
+                connected: true,
+                latency: `${latency}ms`,
+                keyIsolation: keyIsolationWorking ? '✅ Working' : '❌ Failed',
+                keyPrefix: this.prefix,
+                ourKeys: stats?.ourKeys || 0,
+                totalKeys: stats?.totalKeysInRedis || 0,
+                serverInfo: info.split('\r\n').reduce((acc, line) => {
+                    if (line.includes(':')) {
+                        const [key, value] = line.split(':');
+                        if (['redis_version', 'uptime_in_seconds'].includes(key)) {
+                            acc[key] = value;
+                        }
+                    }
+                    return acc;
+                }, {})
+            };
+            
+        } catch (error) {
+            return {
+                status: 'error',
+                connected: false,
+                error: error.message
+            };
+        }
+    }
+
+    // Advanced caching methods for better performance
+    async setWithExpiry(key, value, ttlSeconds) {
+        if (!this.connected) return false;
+        
+        try {
+            await this.client.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
+            return true;
+        } catch (error) {
+            console.error('❌ Redis: Error setting value with expiry:', error);
+            return false;
+        }
+    }
+
+    async getWithDefault(key, defaultValue = null) {
+        if (!this.connected) return defaultValue;
+        
+        try {
+            const data = await this.client.get(this.key(key));
+            return data ? JSON.parse(data) : defaultValue;
+        } catch (error) {
+            console.error('❌ Redis: Error getting value:', error);
+            return defaultValue;
+        }
+    }
+
+    // Batch get operation for multiple keys
+    async getBatch(keys) {
+        if (!this.connected) return [];
+        
+        try {
+            const prefixedKeys = keys.map(key => this.key(key));
+            const values = await this.client.mGet(prefixedKeys);
+            
+            return values.map(value => {
+                try {
+                    return value ? JSON.parse(value) : null;
+                } catch {
+                    return value;
+                }
+            });
+            
+        } catch (error) {
+            console.error('❌ Redis: Error getting batch values:', error);
+            return new Array(keys.length).fill(null);
+        }
+    }
+
+    // Batch set operation for multiple key-value pairs
+    async setBatch(keyValuePairs, ttlSeconds = 3600) {
+        if (!this.connected) return false;
+        
+        try {
+            const pipeline = this.client.multi();
+            
+            for (const [key, value] of keyValuePairs) {
+                pipeline.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
+            }
+            
+            await pipeline.exec();
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Redis: Error setting batch values:', error);
+            return false;
+        }
+    }
+
+    // Utility methods
+    getCurrentDate() {
+        const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
+        const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
+        
+        const now = new Date();
+        const edtOffset = this.isEDT(now) ? -4 : -5;
+        const edtTime = new Date(now.getTime() + (edtOffset * 60 * 60 * 1000));
+        
+        const currentTimeInMinutes = (edtTime.getHours() * 60) + edtTime.getMinutes();
+        const resetTimeInMinutes = (resetHour * 60) + resetMinute;
+        
+        // If it's before reset time, use previous day
+        if (currentTimeInMinutes < resetTimeInMinutes) {
+            edtTime.setDate(edtTime.getDate() - 1);
+        }
+        
+        return edtTime.toISOString().split('T')[0];
+    }
+
+    isEDT(date) {
+        const year = date.getFullYear();
+        
+        // Second Sunday in March at 2:00 AM
+        const marchSecondSunday = new Date(year, 2, 1);
+        marchSecondSunday.setDate(1 + (14 - marchSecondSunday.getDay()) % 7);
+        marchSecondSunday.setDate(marchSecondSunday.getDate() + 7);
+        marchSecondSunday.setHours(2, 0, 0, 0);
+        
+        // First Sunday in November at 2:00 AM
+        const novemberFirstSunday = new Date(year, 10, 1);
+        novemberFirstSunday.setDate(1 + (7 - novemberFirstSunday.getDay()) % 7);
+        novemberFirstSunday.setHours(2, 0, 0, 0);
+        
+        return date >= marchSecondSunday && date < novemberFirstSunday;
+    }
+
+    async disconnect() {
+        if (this.client) {
+            await this.client.quit();
+            this.connected = false;
+            console.log('📡 Redis connection closed');
+        }
+    }
+}
+
+module.exports = RedisManager;
