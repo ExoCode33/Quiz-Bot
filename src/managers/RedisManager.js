@@ -359,35 +359,7 @@ class RedisManager {
         }
     }
 
-    // Performance monitoring methods
-    async getConnectionStatus() {
-        if (!this.connected) return { connected: false };
-        
-        try {
-            const info = await this.client.info();
-            const keyCount = await this.client.dbSize();
-            
-            return {
-                connected: true,
-                keyCount,
-                info: info.split('\r\n').reduce((acc, line) => {
-                    if (line.includes(':')) {
-                        const [key, value] = line.split(':');
-                        if (['used_memory_human', 'connected_clients', 'total_commands_processed'].includes(key)) {
-                            acc[key] = value;
-                        }
-                    }
-                    return acc;
-                }, {})
-            };
-            
-        } catch (error) {
-            console.error('❌ Redis: Error getting connection status:', error);
-            return { connected: false, error: error.message };
-        }
-    }
-
-    // Optimized cleanup methods
+    // SAFE cleanup that only touches our bot's keys
     async cleanupExpiredKeys() {
         if (!this.connected) return 0;
         
@@ -396,10 +368,12 @@ class RedisManager {
             const batchSize = 100;
             let cursor = 0;
             
+            console.log(`🧹 Starting cleanup for keys with prefix: "${this.prefix}"`);
+            
             do {
-                // Use SCAN for better performance on large datasets
+                // CRITICAL: Only scan keys with OUR prefix to avoid other bots
                 const result = await this.client.scan(cursor, {
-                    MATCH: `${this.prefix}*`,
+                    MATCH: `${this.prefix}*`,  // Only our keys
                     COUNT: batchSize
                 });
                 
@@ -407,6 +381,8 @@ class RedisManager {
                 const keys = result.keys;
                 
                 if (keys.length > 0) {
+                    console.log(`🔍 Found ${keys.length} keys with our prefix to check`);
+                    
                     // Check TTL in batch
                     const pipeline = this.client.multi();
                     
@@ -416,7 +392,7 @@ class RedisManager {
                     
                     const ttls = await pipeline.exec();
                     
-                    // Delete expired or soon-to-expire keys
+                    // Delete expired or soon-to-expire keys (only ours)
                     const keysToDelete = [];
                     for (let i = 0; i < keys.length; i++) {
                         const ttl = ttls[i];
@@ -426,6 +402,7 @@ class RedisManager {
                     }
                     
                     if (keysToDelete.length > 0) {
+                        console.log(`🗑️ Deleting ${keysToDelete.length} expired keys (our bot only)`);
                         await this.client.del(keysToDelete);
                         deletedCount += keysToDelete.length;
                     }
@@ -434,57 +411,31 @@ class RedisManager {
             } while (cursor !== 0);
             
             if (deletedCount > 0) {
-                console.log(`🧹 Redis: Cleaned up ${deletedCount} expired keys`);
+                console.log(`🧹 Redis cleanup completed: ${deletedCount} expired keys deleted (our bot only)`);
+                console.log(`🔒 Other bots' keys were not touched (prefix isolation working)`);
+            } else {
+                console.log(`✅ No expired keys found with our prefix "${this.prefix}"`);
             }
             
             return deletedCount;
             
         } catch (error) {
-            console.error('❌ Redis: Error during cleanup:', error);
+            console.error('❌ Redis: Error during safe cleanup:', error);
             return 0;
         }
     }
 
-    // Bulk operations for better performance during quiz sessions
-    async preloadUserData(userId, guildId) {
-        if (!this.connected) return {};
-        
-        try {
-            const keys = [
-                this.key(`completion:${userId}:${guildId}:${this.getCurrentDate()}`),
-                this.key(`active_quiz:${userId}:${guildId}`),
-                this.key(`questions:${userId}:${guildId}`),
-                this.key(`recent:${userId}:${guildId}`)
-            ];
-            
-            const pipeline = this.client.multi();
-            pipeline.get(keys[0]); // completion
-            pipeline.get(keys[1]); // active quiz
-            pipeline.get(keys[2]); // questions
-            pipeline.sMembers(keys[3]); // recent questions
-            
-            const results = await pipeline.exec();
-            
-            return {
-                completion: results[0] ? JSON.parse(results[0]) : null,
-                activeQuiz: results[1] ? JSON.parse(results[1]) : null,
-                questions: results[2] ? JSON.parse(results[2])?.questions : null,
-                recentQuestions: new Set(results[3] || [])
-            };
-            
-        } catch (error) {
-            console.error('❌ Redis: Error preloading user data:', error);
-            return {};
-        }
-    }
-
-    // Memory optimization for large question sets
+    // Safe optimization that only affects our question cache
     async optimizeQuestionCache() {
         if (!this.connected) return 0;
         
         try {
             let optimizedCount = 0;
+            
+            // CRITICAL: Only get question cache keys with our prefix
             const questionKeys = await this.client.keys(this.key('questions:*'));
+            
+            console.log(`🔧 Optimizing ${questionKeys.length} question cache keys (our bot only)`);
             
             for (const key of questionKeys) {
                 const data = await this.client.get(key);
@@ -511,7 +462,9 @@ class RedisManager {
             }
             
             if (optimizedCount > 0) {
-                console.log(`🔧 Redis: Optimized ${optimizedCount} question caches`);
+                console.log(`🔧 Redis optimization completed: ${optimizedCount} caches optimized (our bot only)`);
+            } else {
+                console.log(`✅ No question caches needed optimization`);
             }
             
             return optimizedCount;
@@ -522,197 +475,24 @@ class RedisManager {
         }
     }
 
-    // Advanced caching methods for better performance
-    async setWithExpiry(key, value, ttlSeconds) {
-        if (!this.connected) return false;
-        
-        try {
-            await this.client.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
-            return true;
-        } catch (error) {
-            console.error('❌ Redis: Error setting value with expiry:', error);
-            return false;
-        }
-    }
-
-    async getWithDefault(key, defaultValue = null) {
-        if (!this.connected) return defaultValue;
-        
-        try {
-            const data = await this.client.get(this.key(key));
-            return data ? JSON.parse(data) : defaultValue;
-        } catch (error) {
-            console.error('❌ Redis: Error getting value:', error);
-            return defaultValue;
-        }
-    }
-
-    // Batch get operation for multiple keys
-    async getBatch(keys) {
-        if (!this.connected) return [];
-        
-        try {
-            const prefixedKeys = keys.map(key => this.key(key));
-            const values = await this.client.mGet(prefixedKeys);
-            
-            return values.map(value => {
-                try {
-                    return value ? JSON.parse(value) : null;
-                } catch {
-                    return value;
-                }
-            });
-            
-        } catch (error) {
-            console.error('❌ Redis: Error getting batch values:', error);
-            return new Array(keys.length).fill(null);
-        }
-    }
-
-    // Batch set operation for multiple key-value pairs
-    async setBatch(keyValuePairs, ttlSeconds = 3600) {
-        if (!this.connected) return false;
-        
-        try {
-            const pipeline = this.client.multi();
-            
-            for (const [key, value] of keyValuePairs) {
-                pipeline.setEx(this.key(key), ttlSeconds, JSON.stringify(value));
-            }
-            
-            await pipeline.exec();
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Redis: Error setting batch values:', error);
-            return false;
-        }
-    }
-
-    // Health check method
-    async healthCheck() {
-        if (!this.connected) {
-            return {
-                status: 'disconnected',
-                connected: false,
-                error: 'Redis not connected'
-            };
-        }
-        
-        try {
-            const start = Date.now();
-            await this.client.ping();
-            const latency = Date.now() - start;
-            
-            const info = await this.client.info('server');
-            const keyCount = await this.client.dbSize();
-            
-            return {
-                status: 'healthy',
-                connected: true,
-                latency: `${latency}ms`,
-                keyCount,
-                serverInfo: info.split('\r\n').reduce((acc, line) => {
-                    if (line.includes(':')) {
-                        const [key, value] = line.split(':');
-                        acc[key] = value;
-                    }
-                    return acc;
-                }, {})
-            };
-            
-        } catch (error) {
-            return {
-                status: 'error',
-                connected: false,
-                error: error.message
-            };
-        }
-    }
-
-    // Get Redis statistics
-    async getStats() {
-        if (!this.connected) return null;
+    // Performance monitoring methods
+    async getConnectionStatus() {
+        if (!this.connected) return { connected: false };
         
         try {
             const info = await this.client.info();
             const keyCount = await this.client.dbSize();
             
-            // Count keys by pattern
-            const patterns = {
-                completions: `${this.prefix}completion:*`,
-                activeQuizzes: `${this.prefix}active_quiz:*`,
-                questions: `${this.prefix}questions:*`,
-                recentQuestions: `${this.prefix}recent:*`,
-                leaderboards: `${this.prefix}leaderboard:*`,
-                resets: `${this.prefix}reset:*`
-            };
-            
-            const patternCounts = {};
-            for (const [name, pattern] of Object.entries(patterns)) {
-                const keys = await this.client.keys(pattern);
-                patternCounts[name] = keys.length;
-            }
-            
             return {
                 connected: true,
-                totalKeys: keyCount,
-                keysByType: patternCounts,
-                memoryUsage: info.match(/used_memory_human:(.+)/)?.[1]?.trim(),
-                connectedClients: info.match(/connected_clients:(\d+)/)?.[1],
-                commandsProcessed: info.match(/total_commands_processed:(\d+)/)?.[1]
+                keyCount,
+                info: info.split('\r\n').reduce((acc, line) => {
+                    if (line.includes(':')) {
+                        const [key, value] = line.split(':');
+                        if (['used_memory_human', 'connected_clients', 'total_commands_processed'].includes(key)) {
+                            acc[key] = value;
+                        }
+                    }
+                    return acc;
+                }, {})
             };
-            
-        } catch (error) {
-            console.error('❌ Redis: Error getting statistics:', error);
-            return null;
-        }
-    }
-
-    // Utility methods
-    getCurrentDate() {
-        const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
-        const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
-        
-        const now = new Date();
-        const edtOffset = this.isEDT(now) ? -4 : -5;
-        const edtTime = new Date(now.getTime() + (edtOffset * 60 * 60 * 1000));
-        
-        const currentTimeInMinutes = (edtTime.getHours() * 60) + edtTime.getMinutes();
-        const resetTimeInMinutes = (resetHour * 60) + resetMinute;
-        
-        // If it's before reset time, use previous day
-        if (currentTimeInMinutes < resetTimeInMinutes) {
-            edtTime.setDate(edtTime.getDate() - 1);
-        }
-        
-        return edtTime.toISOString().split('T')[0];
-    }
-
-    isEDT(date) {
-        const year = date.getFullYear();
-        
-        // Second Sunday in March at 2:00 AM
-        const marchSecondSunday = new Date(year, 2, 1);
-        marchSecondSunday.setDate(1 + (14 - marchSecondSunday.getDay()) % 7);
-        marchSecondSunday.setDate(marchSecondSunday.getDate() + 7);
-        marchSecondSunday.setHours(2, 0, 0, 0);
-        
-        // First Sunday in November at 2:00 AM
-        const novemberFirstSunday = new Date(year, 10, 1);
-        novemberFirstSunday.setDate(1 + (7 - novemberFirstSunday.getDay()) % 7);
-        novemberFirstSunday.setHours(2, 0, 0, 0);
-        
-        return date >= marchSecondSunday && date < novemberFirstSunday;
-    }
-
-    async disconnect() {
-        if (this.client) {
-            await this.client.quit();
-            this.connected = false;
-            console.log('📡 Redis connection closed');
-        }
-    }
-}
-
-module.exports = RedisManager;
