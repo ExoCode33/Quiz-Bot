@@ -30,6 +30,7 @@ class AnimeQuizBot {
         this.quizManager = null;
         this.resetManager = null;
         this.commands = new Map();
+        this.isShuttingDown = false;
     }
 
     async initialize() {
@@ -39,7 +40,7 @@ class AnimeQuizBot {
             // Initialize database connections
             await this.initializeDatabase();
             
-            // Initialize managers
+            // Initialize managers with proper Redis initialization
             await this.initializeManagers();
             
             // Load commands
@@ -70,11 +71,15 @@ class AnimeQuizBot {
 
     async initializeDatabase() {
         try {
-            // Initialize Redis (Priority 1)
+            // Initialize Redis (Priority 1) with proper bot isolation
             try {
                 this.redisManager = new RedisManager();
                 await this.redisManager.connect();
                 console.log('✅ Redis connected successfully (Primary storage)');
+                
+                // Verify Redis key isolation
+                console.log(`📡 Redis using prefix: "${this.redisManager.prefix}" for key isolation`);
+                
             } catch (redisError) {
                 console.log('⚠️ Redis connection failed, falling back to PostgreSQL:', redisError.message);
             }
@@ -91,13 +96,32 @@ class AnimeQuizBot {
     }
 
     async initializeManagers() {
-        // Initialize Quiz Manager
-        this.quizManager = new QuizManager(this.client, this.databaseManager, this.redisManager);
-        
-        // Initialize Reset Manager
-        this.resetManager = new ResetManager(this.client, this.databaseManager, this.redisManager);
-        
-        console.log('✅ Managers initialized successfully');
+        try {
+            // Initialize Quiz Manager
+            this.quizManager = new QuizManager(this.client, this.databaseManager, this.redisManager);
+            
+            // Initialize Reset Manager
+            this.resetManager = new ResetManager(this.client, this.databaseManager, this.redisManager);
+            
+            // CRITICAL: Initialize QuestionLoader with Redis after Redis is connected
+            if (this.quizManager.questionLoader && this.redisManager?.connected) {
+                console.log('🔄 Initializing QuestionLoader with Redis connection...');
+                await this.quizManager.questionLoader.initializeWithRedis(this.redisManager);
+                console.log('✅ QuestionLoader Redis initialization completed');
+            } else if (this.quizManager.questionLoader) {
+                console.log('⚠️ Redis not available, initializing QuestionLoader without Redis...');
+                await this.quizManager.questionLoader.initializeQuestionPools();
+                console.log('✅ QuestionLoader fallback initialization completed');
+            } else {
+                console.warn('⚠️ QuestionLoader not found in QuizManager');
+            }
+            
+            console.log('✅ All managers initialized successfully');
+            
+        } catch (error) {
+            console.error('❌ Error initializing managers:', error);
+            throw error;
+        }
     }
 
     async loadCommands() {
@@ -109,6 +133,17 @@ class AnimeQuizBot {
             console.log(`📋 Loaded command: ${quizCommand.data.name}`);
         } else {
             console.warn(`⚠️ Quiz command is missing required "data" or "execute" property.`);
+        }
+        
+        // Load debug command if it exists (optional)
+        try {
+            const debugCommand = require('./src/commands/debug');
+            if ('data' in debugCommand && 'execute' in debugCommand) {
+                this.commands.set(debugCommand.data.name, debugCommand);
+                console.log(`📋 Loaded command: ${debugCommand.data.name}`);
+            }
+        } catch (error) {
+            console.log('ℹ️ Debug command not found (optional)');
         }
         
         console.log(`✅ Loaded ${this.commands.size} command(s)`);
@@ -139,7 +174,7 @@ class AnimeQuizBot {
     }
 
     setupEventHandlers() {
-        this.client.once('clientReady', () => {
+        this.client.once('clientReady', async () => {
             console.log(`⚓ Logged in as ${this.client.user.tag}`);
             console.log(`🏴‍☠️ Serving ${this.client.guilds.cache.size} server(s)`);
             
@@ -147,6 +182,11 @@ class AnimeQuizBot {
             if (this.redisManager?.connected) {
                 console.log('📡 Redis optimization active - faster quiz loading enabled');
             }
+            
+            // Check system status after everything is ready
+            setTimeout(async () => {
+                await this.checkSystemStatus();
+            }, 10000); // Wait 10 seconds for everything to initialize
         });
 
         this.client.on('interactionCreate', async (interaction) => {
@@ -192,6 +232,39 @@ class AnimeQuizBot {
         });
     }
 
+    async checkSystemStatus() {
+        try {
+            console.log('\n🔍 SYSTEM STATUS CHECK');
+            console.log('═══════════════════════════════════════');
+            
+            // Database status
+            console.log(`Database: ${this.databaseManager?.connected ? '✅ Connected' : '❌ Disconnected'}`);
+            
+            // Redis status
+            if (this.redisManager?.connected) {
+                try {
+                    const stats = await this.redisManager.getStats();
+                    console.log(`Redis: ✅ Connected (${stats?.ourKeys || 0}/${stats?.totalKeysInRedis || 0} keys)`);
+                    console.log(`Redis Prefix: "${this.redisManager.prefix}" (isolated from other bots)`);
+                } catch (err) {
+                    console.log('Redis: ✅ Connected (stats unavailable)');
+                }
+            } else {
+                console.log('Redis: ❌ Disconnected');
+            }
+            
+            // Question system status
+            if (this.quizManager?.questionLoader) {
+                await this.quizManager.questionLoader.getComprehensiveStatus();
+            }
+            
+            console.log('═══════════════════════════════════════\n');
+            
+        } catch (error) {
+            console.error('❌ Error checking system status:', error);
+        }
+    }
+
     setupDailyReset() {
         const resetHour = parseInt(process.env.DAILY_RESET_HOUR_EDT) || 0;
         const resetMinute = parseInt(process.env.DAILY_RESET_MINUTE_EDT) || 30;
@@ -202,6 +275,8 @@ class AnimeQuizBot {
         console.log(`⏰ Scheduling daily reset for ${resetHour}:${resetMinute.toString().padStart(2, '0')} EDT`);
         
         cron.schedule(cronPattern, async () => {
+            if (this.isShuttingDown) return;
+            
             try {
                 console.log('🚨 Starting daily reset...');
                 await this.resetManager.performDailyReset();
@@ -217,15 +292,17 @@ class AnimeQuizBot {
     setupPeriodicCleanup() {
         // Run cleanup every 30 minutes
         cron.schedule('*/30 * * * *', async () => {
+            if (this.isShuttingDown) return;
+            
             try {
                 console.log('🧹 Running periodic cleanup...');
                 
                 // Clean up expired preloaded questions from memory
-                if (this.quizManager) {
-                    this.quizManager.cleanupPreloadedQuestions();
+                if (this.quizManager?.questionLoader) {
+                    this.quizManager.questionLoader.cleanupPreloadedQuestions();
                 }
                 
-                // Clean up Redis expired keys
+                // Clean up Redis expired keys (only our bot's keys)
                 if (this.redisManager?.connected) {
                     await this.redisManager.cleanupExpiredKeys();
                 }
@@ -238,6 +315,8 @@ class AnimeQuizBot {
 
         // Run Redis optimization every 2 hours
         cron.schedule('0 */2 * * *', async () => {
+            if (this.isShuttingDown) return;
+            
             try {
                 if (this.redisManager?.connected) {
                     console.log('🔧 Running Redis optimization...');
@@ -253,9 +332,20 @@ class AnimeQuizBot {
     }
 
     async shutdown() {
+        if (this.isShuttingDown) {
+            console.log('⚠️ Shutdown already in progress...');
+            return;
+        }
+        
+        this.isShuttingDown = true;
         console.log('🛑 Shutting down Anime Quiz Bot...');
         
         try {
+            // Stop question loader systems
+            if (this.quizManager?.questionLoader) {
+                this.quizManager.questionLoader.cleanup();
+            }
+            
             // Close database connections
             if (this.redisManager) {
                 await this.redisManager.disconnect();
@@ -280,9 +370,16 @@ class AnimeQuizBot {
 // Create bot instance
 const bot = new AnimeQuizBot();
 
-// Handle process termination
-process.on('SIGINT', () => bot.shutdown());
-process.on('SIGTERM', () => bot.shutdown());
+// Handle process termination gracefully
+process.on('SIGINT', () => {
+    console.log('\n🛑 Received SIGINT, initiating graceful shutdown...');
+    bot.shutdown();
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM, initiating graceful shutdown...');
+    bot.shutdown();
+});
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -290,8 +387,11 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
     console.error('Uncaught Exception:', error);
-    process.exit(1);
+    bot.shutdown();
 });
 
 // Start the bot
-bot.initialize();
+bot.initialize().catch(error => {
+    console.error('❌ Failed to start bot:', error);
+    process.exit(1);
+});
