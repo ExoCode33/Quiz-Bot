@@ -175,14 +175,25 @@ class DatabaseManager {
         if (!this.connected) throw new Error('Database not connected');
         
         try {
+            // Calculate the cutoff date
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+            const cutoffDateString = cutoffDate.toISOString().split('T')[0];
+
+            const historyCutoffDate = new Date();
+            historyCutoffDate.setDate(historyCutoffDate.getDate() - (daysToKeep * 2));
+            const historyCutoffDateString = historyCutoffDate.toISOString().split('T')[0];
+
+            // Delete old completions
             const completionsResult = await this.pool.query(
-                'DELETE FROM "Quiz-Bot_completions" WHERE date < CURRENT_DATE - INTERVAL \'$1 days\'',
-                [daysToKeep]
+                'DELETE FROM "Quiz-Bot_completions" WHERE date < $1',
+                [cutoffDateString]
             );
 
+            // Delete old question history
             const historyResult = await this.pool.query(
-                'DELETE FROM "Quiz-Bot_question_history" WHERE asked_at < NOW() - INTERVAL \'$1 days\'',
-                [daysToKeep * 2] // Keep question history longer
+                'DELETE FROM "Quiz-Bot_question_history" WHERE asked_at < $1',
+                [historyCutoffDateString]
             );
 
             const completionsDeleted = completionsResult.rowCount || 0;
